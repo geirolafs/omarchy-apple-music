@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Effects
+import QtQuick.Controls as QQC
 import Quickshell
 import qs.Commons
 import qs.Ui
@@ -52,6 +53,7 @@ BarWidget {
     shownArtist = music.artist
     shownAlbum = music.album
     adoptPreloadedCover(music.title, music.artist)
+    checkBackAlbum()
   }
 
   // The held cover/details only bridge the gap between songs. When the Apple
@@ -66,6 +68,9 @@ BarWidget {
     readyHiResTitle = ""
     knownEntries = []
     shownUpNext = []
+    heldCredits = null
+    heldCreditsTitle = ""
+    pendingCredits = null
   }
 
   // Shows the predicted next/previous track the instant it is clicked.
@@ -76,6 +81,7 @@ BarWidget {
     shownArtist = entry.artist || ""
     shownAlbum = entry.album || ""
     adoptPreloadedCover(entry.title, entry.artist)
+    checkBackAlbum()
   }
 
   // Queue entries (with cover URLs) from the last time the bridge matched.
@@ -117,6 +123,7 @@ BarWidget {
     function onAlbumChanged() { root.adoptTrackDetails() }
     function onPredictedTrackChanged() { root.adoptPrediction() }
     function onAvailableChanged() { if (!root.music.available) root.forgetTrack() }
+    function onCreditsChanged() { root.receiveCredits(root.music.credits, root.music.title) }
     function onUpNextChanged() { root.rememberQueue() }
     function onPreviousTrackChanged() { root.rememberQueue() }
   }
@@ -186,9 +193,173 @@ BarWidget {
   // small items never turn into circles.
   function themeRadius(size) { return Math.min(Style.cornerRadius, size / 2) }
 
-  // Popup artwork state: false = thumbnail beside the details,
-  // true = full-width square cover header.
-  property bool largeArtwork: false
+  // Popup artwork state: 0 = thumbnail beside the details, 1 = full-width
+  // square cover header, 2 = the same square flipped to the album back.
+  property int coverMode: 0
+  // Cover motion: resizing (and the details' slide) is quick; turning
+  // between front and back is slower. Shrinking from the back turns at the
+  // quick speed so it stays one snappy motion.
+  readonly property int resizeMotion: 200
+  readonly property int flipMotion: 450
+  readonly property bool largeArtwork: coverMode > 0
+
+  // Nerd Font md glyphs (rendered and checked): arrow_top_right,
+  // arrow_bottom_left, information_outline, album.
+  readonly property string enlargeIcon: String.fromCodePoint(0xf005c)
+  readonly property string shrinkIcon: String.fromCodePoint(0xf0042)
+  readonly property string creditsIcon: String.fromCodePoint(0xf02fd)
+  readonly property string coverIcon: String.fromCodePoint(0xf0025)
+
+  // Tooltips for the cover's corner icons. The shell Button shows its
+  // tooltip after a fixed 400ms, which is intrusive over artwork where the
+  // pointer rests; these wait 800ms, then stay "warm" for 1s so moving to
+  // the other corner icon shows its tip at once (macOS-style).
+  property bool coverTipsWarm: false
+
+  Timer {
+    id: coverTipsCool
+    interval: 1000
+    onTriggered: root.coverTipsWarm = false
+  }
+
+  component CoverTip: QQC.ToolTip {
+    id: coverTip
+    required property Item target
+    parent: target
+    visible: target.visible && target.hot
+    delay: root.coverTipsWarm ? 0 : 800
+    padding: 0
+    onVisibleChanged: {
+      if (visible) { root.coverTipsWarm = true; coverTipsCool.stop() }
+      else coverTipsCool.restart()
+    }
+    background: BorderSurface {
+      color: Color.tooltip.background
+      borderSpec: Border.localOrSurfaceSpec("tooltip", "border", Color.tooltip.border,
+        Color.tooltip.border, Math.max(1, Style.normalBorderWidth))
+      radius: 0
+    }
+    contentItem: Text {
+      textFormat: Text.PlainText
+      text: coverTip.text
+      color: Color.tooltip.text
+      font.family: root.popupFontFamily
+      font.pixelSize: Style.font.bodySmall
+      leftPadding: Style.spacing.controlPaddingX + Math.max(1, Style.normalBorderWidth)
+      rightPadding: Style.spacing.controlPaddingX + Math.max(1, Style.normalBorderWidth)
+      topPadding: Style.spacing.controlPaddingY + Math.max(1, Style.normalBorderWidth)
+      bottomPadding: Style.spacing.controlPaddingY + Math.max(1, Style.normalBorderWidth)
+    }
+  }
+
+  function setCoverMode(mode) {
+    if (mode === 2) backScroll.contentY = 0
+    coverMode = mode
+  }
+
+  // With the back open, a track from the same album keeps the back (its
+  // song credits update in place); a different album turns it over to the
+  // new cover. The old back stays on its face while it turns away, so new
+  // credits are applied only once the flip has finished.
+  function normalizedAlbum(name) {
+    return String(name || "").toLowerCase().replace(/ - (single|ep)$/, "").trim()
+  }
+
+  function turnToFront() {
+    if (coverMode !== 2) return
+    coverMode = 1
+    flipSettle.restart()
+  }
+
+  function checkBackAlbum() {
+    if (coverMode !== 2 || !heldCredits || !heldCredits.album || !shownAlbum) return
+    if (normalizedAlbum(shownAlbum) !== normalizedAlbum(heldCredits.album)) turnToFront()
+  }
+
+  property var pendingCredits: null
+  property string pendingCreditsTitle: ""
+
+  function applyCredits(credits, title) {
+    heldCredits = credits
+    heldCreditsTitle = title
+    creditsGrace = false
+  }
+
+  function receiveCredits(credits, title) {
+    if (!credits) return
+    var otherAlbum = heldCredits && credits.albumId && heldCredits.albumId
+      && credits.albumId !== heldCredits.albumId
+    if (coverMode === 2 && otherAlbum) turnToFront()
+    if (flipSettle.running) {
+      pendingCredits = credits
+      pendingCreditsTitle = title
+      return
+    }
+    applyCredits(credits, title)
+  }
+
+  Timer {
+    id: flipSettle
+    interval: root.flipMotion + 30
+    onTriggered: if (root.pendingCredits) {
+      root.applyCredits(root.pendingCredits, root.pendingCreditsTitle)
+      root.pendingCredits = null
+    }
+  }
+
+  // Album-back details, held through track changes like the other details
+  // and only shown for the song they belong to.
+  property var heldCredits: null
+  property string heldCreditsTitle: ""
+  // After a track change the previous back stays up (creditsGrace) until
+  // the new song's credits arrive, so the back swaps once instead of
+  // flashing the fallback. Usually instant: the page prefetches the next and
+  // previous songs' credits.
+  property bool creditsGrace: false
+  readonly property var backCredits:
+    heldCredits && (heldCreditsTitle === shownTitle || creditsGrace) ? heldCredits : null
+
+  onShownTitleChanged: {
+    if (heldCredits && heldCreditsTitle !== shownTitle) {
+      creditsGrace = true
+      creditsGraceTimer.restart()
+    }
+  }
+
+  Timer {
+    id: creditsGraceTimer
+    interval: 3000
+    onTriggered: {
+      root.creditsGrace = false
+      // No credits arrived for the new song: show its cover, not a fallback.
+      if (root.heldCreditsTitle !== root.shownTitle) root.turnToFront()
+    }
+  }
+
+  // Colours ease between albums' palettes instead of snapping.
+  property color backBackground: backCredits && backCredits.background
+    ? backCredits.background : Qt.tint(Color.popups.background, Util.alpha(popupForeground, 0.06))
+  property color backText: backCredits && backCredits.text ? backCredits.text : popupForeground
+  property color backTextSecondary: backCredits && backCredits.textSecondary
+    ? backCredits.textSecondary : Util.alpha(popupForeground, 0.75)
+  property color backTextTertiary: backCredits && backCredits.textTertiary
+    ? backCredits.textTertiary : Util.alpha(popupForeground, 0.55)
+  Behavior on backBackground { ColorAnimation { duration: 300 } }
+  Behavior on backText { ColorAnimation { duration: 300 } }
+  Behavior on backTextSecondary { ColorAnimation { duration: 300 } }
+  Behavior on backTextTertiary { ColorAnimation { duration: 300 } }
+  readonly property string backMetaLine: {
+    if (!backCredits) return ""
+    var parts = []
+    if (backCredits.releaseDate) parts.push(backCredits.releaseDate.slice(0, 4))
+    if (backCredits.label) parts.push(backCredits.label)
+    if (backCredits.trackNumber > 0) parts.push(backCredits.trackCount > 0
+      ? "Track " + backCredits.trackNumber + " of " + backCredits.trackCount
+      : "Track " + backCredits.trackNumber)
+    if (backCredits.genre) parts.push(backCredits.genre)
+    parts = parts.concat(backCredits.traits || [])
+    return parts.join(" · ")
+  }
   // Apple Music brand red, used for progress so it never blends into the
   // theme accent (e.g. the bar's open-indicator line).
   readonly property color appleMusicRed: "#FA243C"
@@ -450,9 +621,9 @@ BarWidget {
       Item {
         id: header
         width: parent.width
-        height: root.largeArtwork
-          ? cover.height + Style.space(12) + details.height
-          : Math.max(cover.height, details.height)
+        // Follows the animated cover and details, so the popup grows and
+        // shrinks smoothly with them.
+        height: Math.max(cover.height, details.y + details.height)
 
         Item {
           id: cover
@@ -460,70 +631,280 @@ BarWidget {
           y: 0
           width: root.largeArtwork ? header.width : Style.space(88)
           height: width
-
-          // Placeholder surface behind a missing cover; no border.
-          Rectangle {
-            anchors.fill: parent
-            radius: root.themeRadius(width)
-            color: Util.alpha(root.popupForeground, 0.06)
-            visible: root.popupArtUrl === ""
+          // Same timing as the flip, so shrinking from the back turns and
+          // scales down as one motion.
+          Behavior on width {
+            NumberAnimation { duration: root.resizeMotion; easing.type: Easing.OutCubic }
           }
 
-          Rectangle {
-            id: coverMask
+          // Front: the cover. Back: the album back (credits, label, release),
+          // tinted with the album's own palette. Click cycles small → large →
+          // back → small.
+          Flipable {
+            id: coverFlip
             anchors.fill: parent
-            radius: root.themeRadius(width)
-            visible: false
-            layer.enabled: true
-            color: "white"
-          }
 
-          // Loaded synchronously from the pixmap cache: a probe has already
-          // decoded this URL, so the previous cover stays on screen until the
-          // new one paints instead of flashing the placeholder glyph.
-          Image {
-            id: artwork
-            anchors.fill: parent
-            source: root.popupArtUrl
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: false
-            cache: true
-            smooth: true
-            layer.enabled: root.themeRadius(width) > 0
-            layer.effect: MultiEffect {
-              maskEnabled: true
-              maskSource: coverMask
-              maskThresholdMin: 0.3
-              maskSpreadAtMin: 0.1
+            front: Item {
+              anchors.fill: parent
+
+              // Placeholder surface behind a missing cover; no border.
+              Rectangle {
+                anchors.fill: parent
+                radius: root.themeRadius(width)
+                color: Util.alpha(root.popupForeground, 0.06)
+                visible: root.popupArtUrl === ""
+              }
+
+              Rectangle {
+                id: coverMask
+                anchors.fill: parent
+                radius: root.themeRadius(width)
+                visible: false
+                layer.enabled: true
+                color: "white"
+              }
+
+              // Loaded synchronously from the pixmap cache: a probe has already
+              // decoded this URL, so the previous cover stays on screen until the
+              // new one paints instead of flashing the placeholder glyph.
+              Image {
+                id: artwork
+                anchors.fill: parent
+                source: root.popupArtUrl
+                fillMode: Image.PreserveAspectCrop
+                asynchronous: false
+                cache: true
+                smooth: true
+                layer.enabled: root.themeRadius(width) > 0
+                layer.effect: MultiEffect {
+                  maskEnabled: true
+                  maskSource: coverMask
+                  maskThresholdMin: 0.3
+                  maskSpreadAtMin: 0.1
+                }
+              }
+
+              Text {
+                anchors.centerIn: parent
+                visible: root.popupArtUrl === ""
+                text: "󰝚"
+                color: root.popupForeground
+                font.family: root.popupFontFamily
+                font.pixelSize: Style.font.displayLarge
+              }
+            }
+
+            back: Rectangle {
+              anchors.fill: parent
+              radius: root.themeRadius(width)
+              color: root.backBackground
+              clip: true
+
+              Flickable {
+                id: backScroll
+                anchors.fill: parent
+                anchors.margins: Style.space(14)
+                contentHeight: backColumn.implicitHeight
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                interactive: root.coverMode === 2
+
+                Column {
+                  id: backColumn
+                  width: backScroll.width
+                  spacing: Style.space(10)
+
+                  Column {
+                    width: parent.width
+                    spacing: Style.space(2)
+
+                    Text {
+                      width: parent.width
+                      text: root.backCredits && root.backCredits.album
+                        ? root.backCredits.album : (root.shownAlbum || root.shownTitle)
+                      textFormat: Text.PlainText
+                      color: root.backText
+                      font.family: root.popupFontFamily
+                      font.pixelSize: Style.font.subtitle
+                      font.bold: true
+                      wrapMode: Text.WordWrap
+                    }
+
+                    Text {
+                      width: parent.width
+                      text: root.backCredits && root.backCredits.artist
+                        ? root.backCredits.artist : root.shownArtist
+                      textFormat: Text.PlainText
+                      color: root.backTextSecondary
+                      font.family: root.popupFontFamily
+                      font.pixelSize: Style.font.body
+                      wrapMode: Text.WordWrap
+                    }
+
+                    Text {
+                      width: parent.width
+                      visible: text !== ""
+                      text: root.backMetaLine
+                      textFormat: Text.PlainText
+                      color: root.backTextTertiary
+                      font.family: root.popupFontFamily
+                      font.pixelSize: Style.font.caption
+                      wrapMode: Text.WordWrap
+                    }
+                  }
+
+                  Repeater {
+                    model: root.backCredits ? root.backCredits.categories : []
+
+                    Column {
+                      id: creditGroup
+                      required property var modelData
+                      width: backColumn.width
+                      spacing: Style.space(2)
+
+                      Text {
+                        width: parent.width
+                        text: creditGroup.modelData.title
+                        textFormat: Text.PlainText
+                        color: root.backTextTertiary
+                        font.family: root.popupFontFamily
+                        font.pixelSize: Style.font.caption
+                        font.bold: true
+                        font.letterSpacing: 1
+                      }
+
+                      Repeater {
+                        model: creditGroup.modelData.people
+
+                        Text {
+                          required property var modelData
+                          width: creditGroup.width
+                          text: modelData.name + (modelData.roles ? " — " + modelData.roles : "")
+                          textFormat: Text.PlainText
+                          color: root.backText
+                          font.family: root.popupFontFamily
+                          font.pixelSize: Style.font.caption
+                          wrapMode: Text.WordWrap
+                        }
+                      }
+                    }
+                  }
+
+                  Text {
+                    width: parent.width
+                    visible: !root.backCredits || root.backCredits.categories.length === 0
+                    text: root.backCredits ? "No credits for this song" : "Credits unavailable"
+                    textFormat: Text.PlainText
+                    color: root.backTextTertiary
+                    font.family: root.popupFontFamily
+                    font.pixelSize: Style.font.caption
+                  }
+
+                  Text {
+                    width: parent.width
+                    visible: text !== ""
+                    text: root.backCredits ? root.backCredits.copyright : ""
+                    textFormat: Text.PlainText
+                    color: root.backTextTertiary
+                    font.family: root.popupFontFamily
+                    font.pixelSize: Style.font.caption
+                    wrapMode: Text.WordWrap
+                  }
+                }
+              }
+            }
+
+            transform: Rotation {
+              origin.x: coverFlip.width / 2
+              origin.y: coverFlip.height / 2
+              axis { x: 0; y: 1; z: 0 }
+              angle: root.coverMode === 2 ? 180 : 0
+
+              Behavior on angle {
+                NumberAnimation {
+                  duration: root.coverMode === 0 ? root.resizeMotion : root.flipMotion
+                  easing.type: root.coverMode === 0 ? Easing.OutCubic : Easing.InOutCubic
+                }
+              }
             }
           }
 
-          Text {
-            anchors.centerIn: parent
-            visible: root.popupArtUrl === ""
-            text: "󰝚"
-            color: root.popupForeground
-            font.family: root.popupFontFamily
-            font.pixelSize: Style.font.displayLarge
-          }
-
+          // A click anywhere does what the top-right icon shows: small →
+          // large, large → album back, back → cover. Wheel events pass
+          // through to the back's scroll area; only clicks are taken here.
           MouseArea {
             anchors.fill: parent
             cursorShape: Qt.PointingHandCursor
             Accessible.role: Accessible.Button
-            Accessible.name: root.largeArtwork ? "Shrink artwork" : "Enlarge artwork"
-            onClicked: root.largeArtwork = !root.largeArtwork
+            Accessible.name: root.coverMode === 0 ? "Enlarge artwork"
+              : root.coverMode === 1 ? "Show album credits" : "Show cover"
+            onClicked: root.setCoverMode(root.coverMode === 1 ? 2 : 1)
+          }
+
+          HoverHandler { id: coverHover }
+
+          // Corner icons, revealed while the cover is hovered; each has the
+          // shell's tooltip. Top right: the click action. Bottom left: shrink.
+          Button {
+            id: coverPrimaryIcon
+            anchors.top: parent.top
+            anchors.right: parent.right
+            anchors.margins: Style.space(6)
+            width: Style.space(24)
+            height: Style.space(24)
+            iconText: root.coverMode === 0 ? root.enlargeIcon
+              : root.coverMode === 1 ? root.creditsIcon : root.coverIcon
+            iconSize: Style.font.caption
+            foreground: root.popupForeground
+            background: Util.alpha(Color.popups.background, 0.75)
+            readonly property string tip: root.coverMode === 0 ? "Enlarge"
+              : root.coverMode === 1 ? "Album credits" : "Show cover"
+            Accessible.name: tip
+            opacity: coverHover.hovered ? (hot ? 1 : 0.85) : 0
+            visible: opacity > 0
+            Behavior on opacity { NumberAnimation { duration: 150 } }
+            onClicked: root.setCoverMode(root.coverMode === 1 ? 2 : 1)
+
+            CoverTip { target: coverPrimaryIcon; text: coverPrimaryIcon.tip }
+          }
+
+          Button {
+            id: coverShrinkIcon
+            anchors.left: parent.left
+            anchors.bottom: parent.bottom
+            anchors.margins: Style.space(6)
+            width: Style.space(24)
+            height: Style.space(24)
+            iconText: root.shrinkIcon
+            iconSize: Style.font.caption
+            foreground: root.popupForeground
+            background: Util.alpha(Color.popups.background, 0.75)
+            Accessible.name: "Shrink"
+            opacity: root.coverMode > 0 && coverHover.hovered ? (hot ? 1 : 0.85) : 0
+            visible: opacity > 0
+            Behavior on opacity { NumberAnimation { duration: 150 } }
+            onClicked: root.setCoverMode(0)
+
+            CoverTip { target: coverShrinkIcon; text: "Shrink" }
           }
         }
 
         Column {
           id: details
-          x: root.largeArtwork ? 0 : cover.width + Style.space(12)
+          // Targets use the cover's final size, not its animating one, so
+          // each slide is a single animation instead of re-aiming per frame.
+          x: root.largeArtwork ? 0 : Style.space(88) + Style.space(12)
           y: root.largeArtwork
-            ? cover.height + Style.space(12)
-            : Math.max(0, (cover.height - height) / 2)
+            ? header.width + Style.space(12)
+            : Math.max(0, (Style.space(88) - height) / 2)
           width: header.width - x
           spacing: Style.space(4)
+          Behavior on x {
+            NumberAnimation { duration: root.resizeMotion; easing.type: Easing.OutCubic }
+          }
+          Behavior on y {
+            NumberAnimation { duration: root.resizeMotion; easing.type: Easing.OutCubic }
+          }
 
           // Every line always reserves its height, even when empty.
           Text {

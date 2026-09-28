@@ -45,6 +45,9 @@ MAX_STATE_STRING = 512               # any string forwarded to the shell
 MAX_UPNEXT_ENTRIES = 40
 
 COMMAND_NAME = re.compile(r"^[A-Za-z0-9._-]+\.json$")
+HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+MAX_CREDIT_CATEGORIES = 6
+MAX_CREDIT_PEOPLE = 30
 ARTWORK_URL = re.compile(r"^https://[a-z0-9-]+\.mzstatic\.com/[^\s\"'<>{}]+$")
 DESCRIPTOR_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 # The dedicated window is *expected* to sit on music.apple.com, but a
@@ -441,7 +444,53 @@ def sanitize_state(value):
     previous = sanitize_queue_entry(value.get("previous"))
     if previous:
         state["previous"] = previous
+    credits = sanitize_credits(value.get("credits"))
+    if credits:
+        state["credits"] = credits
     return state
+
+
+def _color(value):
+    return value if isinstance(value, str) and HEX_COLOR.match(value) else ""
+
+
+def sanitize_credits(value):
+    """Album-back details: typed, capped strings and counts only."""
+    if not isinstance(value, dict):
+        return None
+    categories = []
+    groups = value.get("categories")
+    for group in groups[:MAX_CREDIT_CATEGORIES] if isinstance(groups, list) else []:
+        if not isinstance(group, dict):
+            continue
+        people = []
+        members = group.get("people")
+        for person in members[:MAX_CREDIT_PEOPLE] if isinstance(members, list) else []:
+            if isinstance(person, dict) and _text(person.get("name"), 128):
+                people.append({"name": _text(person.get("name"), 128),
+                               "roles": _text(person.get("roles"), 128)})
+        title = _text(group.get("title"), 64)
+        if title and people:
+            categories.append({"title": title, "people": people})
+    traits = value.get("traits")
+    album_id = _text(value.get("albumId"), 128)
+    return {
+        "albumId": album_id if DESCRIPTOR_ID.match(album_id) else "",
+        "album": _text(value.get("album")),
+        "artist": _text(value.get("artist")),
+        "label": _text(value.get("label"), 128),
+        "copyright": _text(value.get("copyright")),
+        "releaseDate": _text(value.get("releaseDate"), 16),
+        "trackNumber": int(_finite(value.get("trackNumber"))),
+        "trackCount": int(_finite(value.get("trackCount"))),
+        "genre": _text(value.get("genre"), 64),
+        "traits": [_text(t, 32) for t in traits[:4] if isinstance(t, str)] if isinstance(traits, list) else [],
+        "background": _color(value.get("background")),
+        "text": _color(value.get("text")),
+        "textSecondary": _color(value.get("textSecondary")),
+        "textTertiary": _color(value.get("textTertiary")),
+        "categories": categories,
+    }
 
 
 def sanitize_queue_entry(item):

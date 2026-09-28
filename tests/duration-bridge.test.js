@@ -38,6 +38,32 @@ assert.equal(bridge.revealPathFor({
 assert.equal(bridge.revealPathFor({ attributes: { playParams: { id: "i.Kd8", isLibrary: true } } }, "us"), "")
 assert.equal(bridge.revealPathFor(null, "us"), "")
 
+const credits = bridge.buildCredits({ data: [
+  { attributes: { title: "PERFORMING ARTISTS" }, relationships: { "credit-artists": { data: [
+    { attributes: { name: "GusGus", roleNames: ["Performer"] } }
+  ] } } },
+  { attributes: { title: "EMPTY" }, relationships: { "credit-artists": { data: [] } } }
+] }, { data: [{
+  attributes: { trackNumber: 3, genreNames: ["Electronic", "Music"],
+    audioTraits: ["lossless", "lossy-stereo", "hi-res-lossless", "atmos"] },
+  relationships: { albums: { data: [{ id: "1332641904", attributes: {
+    name: "Lies Are More Flexible", artistName: "GusGus", recordLabel: "Oroom",
+    copyright: "℗ 2018 Oroom", releaseDate: "2018-02-23", trackCount: 8,
+    artwork: { bgColor: "030400", textColor1: "cfd301", textColor2: "c2c501", textColor4: "zzz" }
+  } }] } }
+}] })
+assert.equal(credits.categories.length, 1)
+assert.equal(credits.categories[0].people[0].roles, "Performer")
+assert.equal(credits.label, "Oroom")
+assert.equal(credits.albumId, "1332641904")
+assert.equal(credits.trackNumber, 3)
+assert.equal(credits.trackCount, 8)
+assert.equal(credits.genre, "Electronic")
+assert.deepEqual(credits.traits, ["Hi-Res Lossless", "Dolby Atmos"])
+assert.equal(credits.background, "#030400")
+assert.equal(credits.textTertiary, "")
+assert.equal(bridge.buildCredits(null, null).categories.length, 0)
+
 assert.equal(bridge.bridgedPosition(50, 200), 50)
 assert.equal(bridge.bridgedPosition(-1, 200), 0)
 assert.ok(bridge.bridgedPosition(250, 200) < 200)
@@ -435,6 +461,32 @@ const flush = function() { return new Promise(function(resolve) { setImmediate(r
 
   delete global.window
   delete global.fetch
+
+  // Credits are fetched once per catalog song and cached; failures are
+  // remembered so a broken lookup is not retried on every poll.
+  const calls = []
+  const fakeMusic = { storefrontId: "is", api: { music: function(path) {
+    calls.push(path)
+    if (path.indexOf("bad") >= 0) return Promise.reject(new Error("404"))
+    return Promise.resolve({ data: path.endsWith("/credits")
+      ? { data: [{ attributes: { title: "PERFORMING ARTISTS" }, relationships: {
+          "credit-artists": { data: [{ attributes: { name: "A", roleNames: ["Performer"] } }] } } }] }
+      : { data: [{ attributes: { trackNumber: 1 } }] } })
+  } } }
+  const song = { attributes: { playParams: { id: "i.1", catalogId: "111", isLibrary: true } } }
+  const badSong = { attributes: { playParams: { id: "bad1", kind: "song" } } }
+  bridge.fetchCredits(fakeMusic, song)
+  bridge.fetchCredits(fakeMusic, song)
+  bridge.fetchCredits(fakeMusic, badSong)
+  await new Promise(function(resolve) { setTimeout(resolve, 10) })
+  assert.equal(bridge.creditsFor(song).categories[0].people[0].name, "A")
+  assert.equal(bridge.creditsFor(badSong), null)
+  assert.equal(calls.filter(function(p) { return p.indexOf("/songs/111") >= 0 }).length, 2)
+  assert.ok(calls[0].startsWith("/v1/catalog/is/songs/111"))
+  const before = calls.length
+  bridge.fetchCredits(fakeMusic, song)
+  bridge.fetchCredits(fakeMusic, badSong)
+  assert.equal(calls.length, before)
 
   console.log("duration bridge tests passed")
 })().catch(function(error) {

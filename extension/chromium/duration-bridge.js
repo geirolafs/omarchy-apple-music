@@ -478,6 +478,121 @@ function refreshRatingCache(music, item) {
     .then(function() { clearTimeout(timer) })
 }
 
+// ---------------------------------------------------------------------------
+// Album back: credits and album details for the popup's flipped cover.
+// Endpoints verified against the live API from the page context:
+// - GET /v1/catalog/<sf>/songs/<id>/credits → role-categories (performer,
+//   composer-and-lyrics, production-and-engineering) with credit-artists
+// - GET /v1/catalog/<sf>/songs/<id>?include=albums → track, album label,
+//   copyright, release date, audio traits and the cover's palette
+// Fetched once per catalog song and cached (current, next and previous are
+// prefetched so a track change can swap instantly); library-only songs have
+// none.
+var CREDIT_CATEGORIES = 6
+var CREDIT_PEOPLE = 30
+var AUDIO_TRAITS = {
+  "hi-res-lossless": "Hi-Res Lossless",
+  "lossless": "Lossless",
+  "atmos": "Dolby Atmos",
+  "spatial": "Spatial Audio"
+}
+
+var CREDITS_CACHE_SIZE = 8
+// catalog id → credits object, or false when the lookup failed (not retried)
+var creditsCache = {}
+var creditsOrder = []
+var creditsPending = {}
+
+function catalogSongId(item) {
+  var params = playParamsOf(item)
+  var id = params && (params.catalogId || (!params.isLibrary && params.id))
+  return id && DESCRIPTOR_ID_PATTERN.test(String(id)) ? String(id) : ""
+}
+
+function hexColor(value) {
+  return /^[0-9a-fA-F]{6}$/.test(String(value || "")) ? "#" + value : ""
+}
+
+function buildCredits(creditsDoc, songDoc) {
+  var categories = []
+  var groups = (creditsDoc && Array.isArray(creditsDoc.data)) ? creditsDoc.data : []
+  for (var i = 0; i < groups.length && categories.length < CREDIT_CATEGORIES; i++) {
+    var group = groups[i] || {}
+    var members = group.relationships && group.relationships["credit-artists"] &&
+      group.relationships["credit-artists"].data
+    var people = []
+    for (var j = 0; Array.isArray(members) && j < members.length && people.length < CREDIT_PEOPLE; j++) {
+      var attrs = members[j] && members[j].attributes
+      if (!attrs || !attrs.name) continue
+      people.push({
+        name: String(attrs.name),
+        roles: (Array.isArray(attrs.roleNames) ? attrs.roleNames : []).slice(0, 4).map(String).join(", ")
+      })
+    }
+    var title = group.attributes && group.attributes.title
+    if (people.length && title) categories.push({ title: String(title), people: people })
+  }
+
+  var song = songDoc && Array.isArray(songDoc.data) ? songDoc.data[0] : null
+  var sa = (song && song.attributes) || {}
+  var albums = song && song.relationships && song.relationships.albums &&
+    song.relationships.albums.data
+  var aa = (Array.isArray(albums) && albums[0] && albums[0].attributes) || {}
+  var albumId = Array.isArray(albums) && albums[0] ? String(albums[0].id || "") : ""
+  var art = aa.artwork || sa.artwork || {}
+  var traits = []
+  var rawTraits = Array.isArray(sa.audioTraits) ? sa.audioTraits : []
+  // Show the best lossless tier only, then the spatial formats.
+  if (rawTraits.indexOf("hi-res-lossless") >= 0) traits.push(AUDIO_TRAITS["hi-res-lossless"])
+  else if (rawTraits.indexOf("lossless") >= 0) traits.push(AUDIO_TRAITS["lossless"])
+  if (rawTraits.indexOf("atmos") >= 0) traits.push(AUDIO_TRAITS["atmos"])
+  else if (rawTraits.indexOf("spatial") >= 0) traits.push(AUDIO_TRAITS["spatial"])
+
+  return {
+    albumId: DESCRIPTOR_ID_PATTERN.test(albumId) ? albumId : "",
+    album: String(aa.name || sa.albumName || ""),
+    artist: String(aa.artistName || sa.artistName || ""),
+    label: String(aa.recordLabel || ""),
+    copyright: String(aa.copyright || ""),
+    releaseDate: String(aa.releaseDate || sa.releaseDate || ""),
+    trackNumber: Number(sa.trackNumber) || 0,
+    trackCount: Number(aa.trackCount) || 0,
+    genre: Array.isArray(sa.genreNames) && sa.genreNames[0] ? String(sa.genreNames[0]) : "",
+    traits: traits,
+    background: hexColor(art.bgColor),
+    text: hexColor(art.textColor1),
+    textSecondary: hexColor(art.textColor2),
+    textTertiary: hexColor(art.textColor4),
+    categories: categories
+  }
+}
+
+function fetchCredits(music, item) {
+  if (!item || !music.api || typeof music.api.music !== "function") return
+  var id = catalogSongId(item)
+  if (!id || id in creditsCache || creditsPending[id]) return
+  creditsPending[id] = true
+  var sf = /^[a-z]{2}$/.test(String(music.storefrontId || "")) ? music.storefrontId : "us"
+  var base = "/v1/catalog/" + sf + "/songs/" + encodeURIComponent(id)
+  function get(path) {
+    return music.api.music(path)
+      .then(function(response) { return response && response.data })
+      .catch(function() { return null })
+  }
+  Promise.all([get(base + "/credits"), get(base + "?include=albums")])
+    .then(function(results) {
+      delete creditsPending[id]
+      creditsCache[id] = results[0] || results[1] ? buildCredits(results[0], results[1]) : false
+      creditsOrder.push(id)
+      while (creditsOrder.length > CREDITS_CACHE_SIZE) delete creditsCache[creditsOrder.shift()]
+    })
+}
+
+function creditsFor(item) {
+  var id = catalogSongId(item)
+  return id && creditsCache[id] ? creditsCache[id] : null
+}
+
 function currentTrackItem(music) {
   var metadata = navigator.mediaSession && navigator.mediaSession.metadata
   var context = queueContext(music)
@@ -502,12 +617,17 @@ function collectBridgeState() {
     var current = currentTrackItem(music)
     var trackId = current ? playableId(current) : ""
     if (trackId) refreshRatingCache(music, current)
+    if (current) fetchCredits(music, current)
     if (trackId) refreshLibraryCache(music, current)
     // MusicKit's queue position can go stale around jumps (playMediaItem),
     // so window the up-next list from where the matched current item
     // actually sits, falling back to the reported position.
     var position = context && current ? context.items.indexOf(current) : -1
     if (position < 0 && context) position = context.position
+    if (context && position >= 0) {
+      fetchCredits(music, context.items[position + 1])
+      fetchCredits(music, context.items[position - 1])
+    }
 
     return {
       ok: true,
@@ -525,6 +645,7 @@ function collectBridgeState() {
       autoplay: normalizeAutoplay(music.autoplayEnabled),
       play: current ? playbackDescriptorOf(current) : null,
       artworkUrl: current ? artworkUrlOf(current) : "",
+      credits: current ? creditsFor(current) : null,
       library: current && trackId && libraryCache.id === trackId
         ? libraryCache.state : "unknown"
     }
@@ -682,6 +803,9 @@ if (typeof module !== "undefined") {
     validPlaybackDescriptor: validPlaybackDescriptor,
     artworkUrlOf: artworkUrlOf,
     revealPathFor: revealPathFor,
+    buildCredits: buildCredits,
+    fetchCredits: fetchCredits,
+    creditsFor: creditsFor,
     previousEntry: previousEntry,
     playDescriptor: playDescriptor,
     librarySearchUrl: librarySearchUrl,

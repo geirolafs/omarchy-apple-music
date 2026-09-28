@@ -86,6 +86,27 @@ class SanitizeStateTest(unittest.TestCase):
         self.assertEqual(state["previous"]["title"], "P")
         self.assertNotIn("previous", bridge_daemon.sanitize_state({"ok": True, "previous": "x"}))
 
+    def test_credits_are_typed_and_capped(self):
+        state = bridge_daemon.sanitize_state({"ok": True, "credits": {
+            "album": "LP", "albumId": "1332641904", "trackNumber": "3", "trackCount": 8,
+            "background": "#030400", "text": "red", "traits": ["Lossless", 5],
+            "categories": [{"title": "PERFORMING ARTISTS",
+                            "people": [{"name": "A", "roles": "Performer"}] + [{"name": "x"}] * 50},
+                           {"title": "EMPTY", "people": []}, "junk"],
+        }})
+        credits = state["credits"]
+        self.assertEqual(credits["album"], "LP")
+        self.assertEqual(credits["albumId"], "1332641904")
+        self.assertEqual(bridge_daemon.sanitize_state({"ok": True, "credits": {"albumId": "../x"}})["credits"]["albumId"], "")
+        self.assertEqual(credits["trackNumber"], 0)
+        self.assertEqual(credits["trackCount"], 8)
+        self.assertEqual(credits["background"], "#030400")
+        self.assertEqual(credits["text"], "")
+        self.assertEqual(credits["traits"], ["Lossless"])
+        self.assertEqual(len(credits["categories"]), 1)
+        self.assertEqual(len(credits["categories"][0]["people"]), bridge_daemon.MAX_CREDIT_PEOPLE)
+        self.assertNotIn("credits", bridge_daemon.sanitize_state({"ok": True, "credits": "x"}))
+
     def test_artwork_url_only_from_apple_cdn(self):
         good = "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/aa/Cover.jpg/1000x1000bb.jpg"
         state = bridge_daemon.sanitize_state({"ok": True, "artworkUrl": good})

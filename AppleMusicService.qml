@@ -107,6 +107,11 @@ Item {
     onTriggered: root.predictedTrack = null
   }
 
+  // Album-back details (credits, label, release, palette) for the current
+  // catalog song; null until the page has fetched them.
+  readonly property var credits:
+    bridgeActive && bridgeState.credits ? bridgeState.credits : null
+
   // Large cover from Apple's CDN (the MPRIS art is a 150px thumbnail).
   readonly property string hiResArtUrl:
     bridgeActive && bridgeState.artworkUrl ? String(bridgeState.artworkUrl) : ""

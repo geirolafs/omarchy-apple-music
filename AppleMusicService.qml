@@ -109,7 +109,9 @@ Item {
   // one within ~600ms. Binding an Image directly to that churn loads files
   // that are already gone and flashes the artwork fallback. Adopt the URL
   // only once it stops changing, so only the surviving final file is used.
-  readonly property string rawArtUrl: available
+  // Between tracks Chromium reports ~0.5s of empty metadata with its own
+  // browser logo as artwork; never treat that as the track's cover.
+  readonly property string rawArtUrl: available && title !== ""
     ? Model.artworkUrl(activePlayer.trackArtUrl) : ""
   property string artUrl: ""
   readonly property real position: {

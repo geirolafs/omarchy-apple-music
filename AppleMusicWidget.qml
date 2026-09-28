@@ -39,15 +39,67 @@ BarWidget {
   readonly property string autoplayIcon: String.fromCodePoint(0xf06e4)
   readonly property color popupForeground: bar ? bar.foreground : Color.foreground
   readonly property string popupFontFamily: bar ? bar.fontFamily : Style.font.family
+  // Last non-empty track details. Chromium blanks the metadata for ~0.5s
+  // between tracks; showing these instead keeps the previous song on screen
+  // until the next one is known. Empty only before anything has played.
+  property string shownTitle: ""
+  property string shownArtist: ""
+  property string shownAlbum: ""
+
+  function adoptTrackDetails() {
+    if (!music || music.title === "") return
+    shownTitle = music.title
+    shownArtist = music.artist
+    shownAlbum = music.album
+  }
+
+  // The held cover/details only bridge the gap between songs. When the Apple
+  // Music player goes away (window closed), drop them so the bar returns to
+  // the Apple Music logo instead of showing the last song forever.
+  function forgetTrack() {
+    shownTitle = ""
+    shownArtist = ""
+    shownAlbum = ""
+    readyArtUrl = ""
+  }
+
+  Connections {
+    target: root.music
+    ignoreUnknownSignals: true
+    function onTitleChanged() { root.adoptTrackDetails() }
+    function onArtistChanged() { root.adoptTrackDetails() }
+    function onAlbumChanged() { root.adoptTrackDetails() }
+    function onAvailableChanged() { if (!root.music.available) root.forgetTrack() }
+  }
+
+  // Chromium also reports "not playing" for the ~0.5s gap between tracks,
+  // so the paused overlay only appears once a pause has lasted a moment.
+  readonly property bool pausedNow: !!music && music.hasMedia && !music.playing
+  property bool showPaused: false
+  onPausedNowChanged: {
+    if (pausedNow) pausedDelay.restart()
+    else { pausedDelay.stop(); showPaused = false }
+  }
+  Timer {
+    id: pausedDelay
+    interval: 900
+    onTriggered: root.showPaused = root.pausedNow
+  }
+
+  Component.onCompleted: {
+    adoptTrackDetails()
+    showPaused = pausedNow
+  }
+  onMusicChanged: adoptTrackDetails()
+
   readonly property string trackLabel: {
-    if (!music || !music.hasMedia) return "Music"
-    if (showArtist && music.artist) return music.artist + " — " + music.title
-    return music.title || music.artist
+    if (shownTitle === "" && shownArtist === "") return "Music"
+    if (showArtist && shownArtist) return shownArtist + " — " + shownTitle
+    return shownTitle || shownArtist
   }
   readonly property string tooltipLabel: {
-    if (!music || !music.hasMedia) return "Apple Music"
-    if (music.title && music.artist) return music.title + " — " + music.artist
-    return music.title || music.artist || "Apple Music"
+    if (shownTitle && shownArtist) return shownTitle + " — " + shownArtist
+    return shownTitle || shownArtist || "Apple Music"
   }
   readonly property string playbackIcon: music && music.playing ? "󰏤" : "󰐊"
 
@@ -122,7 +174,7 @@ BarWidget {
     MultiEffect {
       anchors.fill: themedLogoSource
       source: themedLogoSource
-      visible: puckArtwork.status !== Image.Ready
+      visible: root.readyArtUrl === ""
       colorization: 1.0
       colorizationColor: root.popupForeground
     }
@@ -132,7 +184,7 @@ BarWidget {
       anchors.centerIn: parent
       width: artworkPuck.canvasSize
       height: width
-      visible: puckArtwork.status === Image.Ready
+      visible: root.readyArtUrl !== ""
       layer.enabled: true
       layer.smooth: true
       layer.effect: MultiEffect {
@@ -147,15 +199,16 @@ BarWidget {
         anchors.fill: parent
         source: root.readyArtUrl
         fillMode: Image.PreserveAspectCrop
-        asynchronous: true
+        // The probe already decoded this file; loading it synchronously
+        // swaps covers in one frame with no empty gap.
+        asynchronous: false
         cache: false
         smooth: true
-        visible: status === Image.Ready
       }
 
       Rectangle {
         anchors.fill: parent
-        visible: !!root.music && root.music.hasMedia && !root.music.playing
+        visible: root.showPaused
         color: Util.alpha("#000000", 0.32)
       }
 
@@ -163,7 +216,7 @@ BarWidget {
         anchors.centerIn: parent
         width: Style.space(10)
         height: width
-        visible: !!root.music && root.music.hasMedia && !root.music.playing
+        visible: root.showPaused
         text: "󰐊"
         color: "white"
         fontFamily: root.bar ? root.popupFontFamily : Style.font.family
@@ -258,11 +311,10 @@ BarWidget {
     asynchronous: true
     cache: false
     source: root.music ? root.music.artUrl : ""
-    onSourceChanged: if (String(source) === "") root.readyArtUrl = ""
-    onStatusChanged: {
-      if (status === Image.Null && String(source) === "") root.readyArtUrl = ""
-      else if (status === Image.Ready) root.readyArtUrl = String(source)
-    }
+    // Never cleared: during a track change MPRIS briefly reports no artwork,
+    // so the previous cover stays up until the next one has decoded. The
+    // placeholder only shows before anything has played.
+    onStatusChanged: if (status === Image.Ready) root.readyArtUrl = String(source)
   }
 
   PopupCard {
@@ -330,14 +382,13 @@ BarWidget {
             anchors.margins: Style.space(2)
             source: root.readyArtUrl
             fillMode: Image.PreserveAspectCrop
-            asynchronous: true
+            asynchronous: false
             cache: false
-            visible: status === Image.Ready
           }
 
           Text {
             anchors.centerIn: parent
-            visible: artwork.status !== Image.Ready
+            visible: root.readyArtUrl === ""
             text: "󰝚"
             color: root.popupForeground
             font.family: root.popupFontFamily
@@ -352,7 +403,7 @@ BarWidget {
 
           Text {
             width: parent.width
-            text: root.music && root.music.title ? root.music.title : "Apple Music"
+            text: root.shownTitle || "Apple Music"
             textFormat: Text.PlainText
             color: root.popupForeground
             font.family: root.popupFontFamily
@@ -363,7 +414,7 @@ BarWidget {
 
           Text {
             width: parent.width
-            text: root.music ? root.music.artist : ""
+            text: root.shownArtist
             textFormat: Text.PlainText
             visible: text !== ""
             color: Qt.darker(root.popupForeground, 1.3)
@@ -374,7 +425,7 @@ BarWidget {
 
           Text {
             width: parent.width
-            text: root.music ? root.music.album : ""
+            text: root.shownAlbum
             textFormat: Text.PlainText
             visible: text !== ""
             color: Qt.darker(root.popupForeground, 1.6)

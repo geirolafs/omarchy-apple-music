@@ -24,17 +24,19 @@ BarWidget {
   readonly property string heartOutlineIcon: String.fromCodePoint(0xf02d5)
   readonly property string thumbDownIcon: String.fromCodePoint(0xf0511)
   readonly property string thumbDownOutlineIcon: String.fromCodePoint(0xf0512)
-  // nf-md-shuffle, nf-md-repeat, nf-md-repeat_once, nf-md-repeat_off,
-  // nf-md-autoplay — all verified present in CaskaydiaMono Nerd Font's cmap.
-  readonly property string shuffleIcon: String.fromCodePoint(0xf1022)
-  readonly property string repeatIcon: String.fromCodePoint(0xf0459)
-  readonly property string repeatOnceIcon: String.fromCodePoint(0xf045a)
-  readonly property string repeatOffIcon: String.fromCodePoint(0xf045b)
+  // Checked by rendering the Nerd Font: shuffle f049d, repeat f0456,
+  // repeat_once f0458, repeat_off f0457, infinity f06e4 (Apple Music's
+  // autoplay mark), clock_outline f0150, alert f0026. Upstream's code points
+  // drew a quote bubble, restore/reply/reply-all arrows, and library-add.
+  readonly property string shuffleIcon: String.fromCodePoint(0xf049d)
+  readonly property string repeatIcon: String.fromCodePoint(0xf0456)
+  readonly property string repeatOnceIcon: String.fromCodePoint(0xf0458)
+  readonly property string repeatOffIcon: String.fromCodePoint(0xf0457)
   readonly property string plusIcon: String.fromCodePoint(0xf0415)
   readonly property string checkIcon: String.fromCodePoint(0xf012c)
-  readonly property string clockOutlineIcon: String.fromCodePoint(0xf0465)
-  readonly property string alertIcon: String.fromCodePoint(0xf0292)
-  readonly property string autoplayIcon: String.fromCodePoint(0xf0ab5)
+  readonly property string clockOutlineIcon: String.fromCodePoint(0xf0150)
+  readonly property string alertIcon: String.fromCodePoint(0xf0026)
+  readonly property string autoplayIcon: String.fromCodePoint(0xf06e4)
   readonly property color popupForeground: bar ? bar.foreground : Color.foreground
   readonly property string popupFontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property string trackLabel: {

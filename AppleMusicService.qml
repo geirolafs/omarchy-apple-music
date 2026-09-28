@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Hyprland
 import Quickshell.Services.Mpris
 import "AppleMusicModel.js" as Model
 
@@ -309,16 +310,33 @@ Item {
     }
   }
 
+  // Find the Apple Music window when windows open or close, instead of
+  // spawning the launcher every 2s. The slow timer is only a safety net.
+  Connections {
+    target: Hyprland
+    function onRawEvent(event) {
+      if (event.name === "openwindow" || event.name === "closewindow") windowEventRefresh.restart()
+    }
+  }
+
   Timer {
-    interval: 2000
+    id: windowEventRefresh
+    interval: 300
+    onTriggered: root.refreshBrowserPid()
+  }
+
+  Timer {
+    interval: 30000
     running: true
     repeat: true
     triggeredOnStart: true
     onTriggered: root.refreshBrowserPid()
   }
 
+  // 4 Hz keeps the popup progress bar moving smoothly; reading the MPRIS
+  // position is a local computation, not a D-Bus call.
   Timer {
-    interval: 1000
+    interval: 250
     running: root.playing
     repeat: true
     onTriggered: root.positionRevision += 1

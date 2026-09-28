@@ -186,6 +186,13 @@ BarWidget {
   // small items never turn into circles.
   function themeRadius(size) { return Math.min(Style.cornerRadius, size / 2) }
 
+  // Popup artwork state: false = thumbnail beside the details,
+  // true = full-width square cover header.
+  property bool largeArtwork: false
+  // Apple Music brand red, used for progress so it never blends into the
+  // theme accent (e.g. the bar's open-indicator line).
+  readonly property color appleMusicRed: "#FA243C"
+
   // Last artwork URL that decoded successfully. Chromium hands MPRIS a new
   // /tmp artwork file several times per track switch and deletes the old
   // ones, so binding an Image straight to artUrl flashes placeholders. The
@@ -304,13 +311,15 @@ BarWidget {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         height: Math.max(1, Style.space(2))
+        // Hidden while the popup is open, which shows its own progress bar.
         visible: !!root.music && root.music.hasMedia && root.music.hasValidLength
+          && !root.opened
         color: Util.alpha(Color.bar.background, 0.6)
 
         Rectangle {
           width: parent.width * (root.music ? root.music.progress : 0)
           height: parent.height
-          color: Color.accent
+          color: root.appleMusicRed
         }
       }
     }
@@ -429,64 +438,64 @@ BarWidget {
     contentWidth: popup.fittedContentWidth(Style.space(340))
     contentHeight: popup.fittedContentHeight(content.implicitHeight)
 
-    // Blurred artwork glow behind the card contents, macOS now-playing
-    // style. Sits as the first child of PopupCard's content holder so every
-    // layout child paints on top of it.
-    Rectangle {
-      anchors.fill: parent
-      anchors.margins: -popup.padding
-      radius: Style.cornerRadius
-      clip: true
-      color: Color.popups.background
-      visible: root.readyArtUrl !== ""
-
-      Image {
-        anchors.fill: parent
-        anchors.margins: Style.space(24)
-        source: root.readyArtUrl
-        fillMode: Image.PreserveAspectCrop
-        // Loads before the next paint, so the glow never shows a gap while
-        // the freshly adopted artwork decodes.
-        asynchronous: false
-        layer.enabled: true
-        layer.effect: MultiEffect {
-          blurEnabled: true
-          blur: 1.0
-          blurMax: 48
-          saturation: 0.5
-        }
-      }
-
-      Rectangle {
-        anchors.fill: parent
-        color: Util.alpha(Color.popups.background, 0.5)
-      }
-    }
-
     Column {
       id: content
       anchors.fill: parent
       spacing: Style.space(12)
 
-      Row {
+      // Header with two artwork states: a small thumbnail beside the track
+      // details, or a full-width square cover above them. Clicking the cover
+      // switches between them. Geometry is fixed per state so track changes
+      // never resize the popup.
+      Item {
+        id: header
         width: parent.width
-        spacing: Style.space(12)
+        height: root.largeArtwork
+          ? cover.height + Style.space(12) + details.height
+          : Math.max(cover.height, details.height)
 
-        BorderSurface {
-          width: Style.space(88)
+        Item {
+          id: cover
+          x: 0
+          y: 0
+          width: root.largeArtwork ? header.width : Style.space(88)
           height: width
-          radius: Style.spacing.labelGap
-          color: Style.normalFillFor(root.popupForeground, Color.accent)
-          borderSpec: Border.controlSpec("normal", root.popupForeground, Color.accent)
 
+          // Placeholder surface behind a missing cover; no border.
+          Rectangle {
+            anchors.fill: parent
+            radius: root.themeRadius(width)
+            color: Util.alpha(root.popupForeground, 0.06)
+            visible: root.popupArtUrl === ""
+          }
+
+          Rectangle {
+            id: coverMask
+            anchors.fill: parent
+            radius: root.themeRadius(width)
+            visible: false
+            layer.enabled: true
+            color: "white"
+          }
+
+          // Loaded synchronously from the pixmap cache: a probe has already
+          // decoded this URL, so the previous cover stays on screen until the
+          // new one paints instead of flashing the placeholder glyph.
           Image {
             id: artwork
             anchors.fill: parent
-            anchors.margins: Style.space(2)
             source: root.popupArtUrl
             fillMode: Image.PreserveAspectCrop
             asynchronous: false
             cache: true
+            smooth: true
+            layer.enabled: root.themeRadius(width) > 0
+            layer.effect: MultiEffect {
+              maskEnabled: true
+              maskSource: coverMask
+              maskThresholdMin: 0.3
+              maskSpreadAtMin: 0.1
+            }
           }
 
           Text {
@@ -497,13 +506,26 @@ BarWidget {
             font.family: root.popupFontFamily
             font.pixelSize: Style.font.displayLarge
           }
+
+          MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            Accessible.role: Accessible.Button
+            Accessible.name: root.largeArtwork ? "Shrink artwork" : "Enlarge artwork"
+            onClicked: root.largeArtwork = !root.largeArtwork
+          }
         }
 
         Column {
-          width: parent.width - Style.space(100)
-          anchors.verticalCenter: parent.verticalCenter
+          id: details
+          x: root.largeArtwork ? 0 : cover.width + Style.space(12)
+          y: root.largeArtwork
+            ? cover.height + Style.space(12)
+            : Math.max(0, (cover.height - height) / 2)
+          width: header.width - x
           spacing: Style.space(4)
 
+          // Every line always reserves its height, even when empty.
           Text {
             width: parent.width
             text: root.shownTitle || "Apple Music"
@@ -554,7 +576,7 @@ BarWidget {
             width: parent.width * (root.music ? root.music.progress : 0)
             height: parent.height
             radius: parent.radius
-            color: Color.accent
+            color: root.appleMusicRed
           }
 
           MouseArea {
@@ -860,12 +882,24 @@ BarWidget {
         }
       }
 
-      Button {
-        anchors.horizontalCenter: parent.horizontalCenter
-        text: root.music && root.music.bridgeActive ? "Show in Apple Music" : "Open Apple Music"
-        iconText: ""
-        foreground: root.popupForeground
-        onClicked: if (root.music) root.music.revealNowPlaying()
+      Item {
+        width: parent.width
+        height: openButton.height
+
+        Button {
+          id: openButton
+          anchors.right: parent.right
+          width: Style.space(28)
+          height: Style.space(26)
+          iconText: ""
+          iconSize: Style.font.caption
+          foreground: hot ? root.appleMusicRed : root.popupForeground
+          opacity: hot ? 1 : 0.45
+          tooltipText: root.music && root.music.bridgeActive
+            ? "Show in Apple Music" : "Open Apple Music"
+          Accessible.name: tooltipText
+          onClicked: if (root.music) root.music.revealNowPlaying()
+        }
       }
     }
   }

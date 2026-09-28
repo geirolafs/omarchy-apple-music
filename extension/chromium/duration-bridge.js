@@ -212,8 +212,17 @@ function normalizeQueueEntry(item, index) {
     id: playableId(item),
     title: String(attributes.name || ""),
     artist: String(attributes.artistName || ""),
+    album: String(attributes.albumName || ""),
+    // Lets the shell pre-load covers so a track change swaps instantly.
+    artworkUrl: artworkUrlOf(item),
     durationSeconds: durationMillis > 0 ? durationMillis / 1000 : 0
   }
+}
+
+// The entry before the current one, so "previous" can be shown instantly.
+function previousEntry(items, position) {
+  var index = (Number(position) || 0) - 1
+  return index >= 0 && index < items.length ? normalizeQueueEntry(items[index], index) : null
 }
 
 // ---------------------------------------------------------------------------
@@ -474,6 +483,7 @@ function collectBridgeState() {
       queuePosition: position,
       queueLength: context ? context.items.length : 0,
       upNext: context ? upNextEntries(context.items, position, 20) : [],
+      previous: context ? previousEntry(context.items, position) : null,
       shuffle: normalizeShuffle(music.shuffleMode),
       repeat: normalizeRepeat(music.repeatMode),
       autoplay: normalizeAutoplay(music.autoplayEnabled),
@@ -522,6 +532,10 @@ function handleCommand(payload) {
     var music = window.MusicKit && window.MusicKit.getInstance
       ? window.MusicKit.getInstance() : null
     if (!music) return Promise.resolve({ ok: false, error: "no-musickit" })
+
+    // No-op: the daemon publishes fresh state right after any command, so
+    // the shell sends this on a track change to skip the regular poll wait.
+    if (action === "refresh") return Promise.resolve({ ok: true })
 
     if (action === "rate") {
       var current = currentTrackItem(music)
@@ -624,6 +638,7 @@ if (typeof module !== "undefined") {
     playbackDescriptorOf: playbackDescriptorOf,
     validPlaybackDescriptor: validPlaybackDescriptor,
     artworkUrlOf: artworkUrlOf,
+    previousEntry: previousEntry,
     playDescriptor: playDescriptor,
     librarySearchUrl: librarySearchUrl,
     libraryAddUrl: libraryAddUrl,

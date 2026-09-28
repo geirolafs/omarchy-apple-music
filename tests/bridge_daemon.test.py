@@ -72,6 +72,20 @@ class SanitizeStateTest(unittest.TestCase):
         self.assertEqual(bridge_daemon.sanitize_state([1, 2]), {"ok": False})
         self.assertEqual(bridge_daemon.sanitize_state({"ok": "yes"}), {"ok": False})
 
+    def test_queue_entries_carry_album_and_safe_artwork(self):
+        good = "https://is1-ssl.mzstatic.com/image/thumb/x/Cover.jpg/1000x1000bb.jpg"
+        state = bridge_daemon.sanitize_state({
+            "ok": True,
+            "upNext": [{"title": "A", "album": "LP", "artworkUrl": good},
+                       {"title": "B", "artworkUrl": "https://evil.example/x.jpg"}],
+            "previous": {"title": "P", "artworkUrl": good},
+        })
+        self.assertEqual(state["upNext"][0]["album"], "LP")
+        self.assertEqual(state["upNext"][0]["artworkUrl"], good)
+        self.assertNotIn("artworkUrl", state["upNext"][1])
+        self.assertEqual(state["previous"]["title"], "P")
+        self.assertNotIn("previous", bridge_daemon.sanitize_state({"ok": True, "previous": "x"}))
+
     def test_artwork_url_only_from_apple_cdn(self):
         good = "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/aa/Cover.jpg/1000x1000bb.jpg"
         state = bridge_daemon.sanitize_state({"ok": True, "artworkUrl": good})

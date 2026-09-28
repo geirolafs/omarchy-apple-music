@@ -80,6 +80,12 @@ assert.equal(upNext.length, 2)
 assert.equal(upNext[0].index, 2)
 assert.equal(upNext[1].index, 4)
 assert.deepEqual(bridge.upNextEntries([], 0, 5), [])
+assert.equal(bridge.previousEntry(queueItems, 2).title, "Two")
+assert.equal(bridge.previousEntry(queueItems, 0), null)
+assert.equal(bridge.normalizeQueueEntry({ attributes: {
+  name: "Art", albumName: "LP",
+  artwork: { url: "https://is1-ssl.mzstatic.com/image/thumb/x/Cover.jpg/{w}x{h}bb.jpg" }
+} }, 0).artworkUrl, "https://is1-ssl.mzstatic.com/image/thumb/x/Cover.jpg/1000x1000bb.jpg")
 
 assert.equal(bridge.ratingStateForValue(1), "like")
 assert.equal(bridge.ratingStateForValue(null), "none")

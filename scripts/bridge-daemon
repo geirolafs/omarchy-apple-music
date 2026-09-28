@@ -434,20 +434,34 @@ def sanitize_state(value):
     items = value.get("upNext")
     if isinstance(items, list):
         for item in items[:MAX_UPNEXT_ENTRIES]:
-            if not isinstance(item, dict):
-                continue
-            title = _text(item.get("title"))
-            if not title:
-                continue
-            up_next.append({
-                "index": int(_finite(item.get("index"))),
-                "id": _text(item.get("id"), 128),
-                "title": title,
-                "artist": _text(item.get("artist")),
-                "durationSeconds": _finite(item.get("durationSeconds")),
-            })
+            entry = sanitize_queue_entry(item)
+            if entry:
+                up_next.append(entry)
     state["upNext"] = up_next
+    previous = sanitize_queue_entry(value.get("previous"))
+    if previous:
+        state["previous"] = previous
     return state
+
+
+def sanitize_queue_entry(item):
+    if not isinstance(item, dict):
+        return None
+    title = _text(item.get("title"))
+    if not title:
+        return None
+    entry = {
+        "index": int(_finite(item.get("index"))),
+        "id": _text(item.get("id"), 128),
+        "title": title,
+        "artist": _text(item.get("artist")),
+        "album": _text(item.get("album")),
+        "durationSeconds": _finite(item.get("durationSeconds")),
+    }
+    artwork = _text(item.get("artworkUrl"))
+    if ARTWORK_URL.match(artwork):
+        entry["artworkUrl"] = artwork
+    return entry
 
 
 def has_new_command(commands_fd, attempts):

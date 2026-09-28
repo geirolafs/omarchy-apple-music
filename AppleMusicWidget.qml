@@ -51,6 +51,7 @@ BarWidget {
     shownTitle = music.title
     shownArtist = music.artist
     shownAlbum = music.album
+    adoptPreloadedCover(music.title, music.artist)
   }
 
   // The held cover/details only bridge the gap between songs. When the Apple
@@ -63,6 +64,49 @@ BarWidget {
     readyArtUrl = ""
     readyHiResUrl = ""
     readyHiResTitle = ""
+    knownEntries = []
+    shownUpNext = []
+  }
+
+  // Shows the predicted next/previous track the instant it is clicked.
+  function adoptPrediction() {
+    var entry = music ? music.predictedTrack : null
+    if (!entry) return
+    shownTitle = entry.title
+    shownArtist = entry.artist || ""
+    shownAlbum = entry.album || ""
+    adoptPreloadedCover(entry.title, entry.artist)
+  }
+
+  // Queue entries (with cover URLs) from the last time the bridge matched.
+  // The live queue disappears during a track change, which is exactly when
+  // the covers are needed.
+  property var knownEntries: []
+  // Cover URLs already decoded into the pixmap cache by the preloaders.
+  property var preloadedUrls: ({})
+
+  // Last known up-next list, held through track changes like the details.
+  property var shownUpNext: []
+
+  function rememberQueue() {
+    if (!music || !music.bridgeActive) return
+    shownUpNext = music.upNext
+    var entries = music.upNext.slice(0, 3)
+    if (music.previousTrack) entries.push(music.previousTrack)
+    if (entries.length > 0) knownEntries = entries
+  }
+
+  function adoptPreloadedCover(title, artist) {
+    var candidates = knownEntries.concat(music && music.predictedTrack ? [music.predictedTrack] : [])
+    for (var i = 0; i < candidates.length; i++) {
+      var entry = candidates[i]
+      if (entry.title !== title || (artist && entry.artist && entry.artist !== artist)) continue
+      if (entry.artworkUrl && preloadedUrls[entry.artworkUrl]) {
+        readyHiResUrl = entry.artworkUrl
+        readyHiResTitle = title
+      }
+      return
+    }
   }
 
   Connections {
@@ -71,7 +115,28 @@ BarWidget {
     function onTitleChanged() { root.adoptTrackDetails() }
     function onArtistChanged() { root.adoptTrackDetails() }
     function onAlbumChanged() { root.adoptTrackDetails() }
+    function onPredictedTrackChanged() { root.adoptPrediction() }
     function onAvailableChanged() { if (!root.music.available) root.forgetTrack() }
+    function onUpNextChanged() { root.rememberQueue() }
+    function onPreviousTrackChanged() { root.rememberQueue() }
+  }
+
+  // Pre-load the covers of the next two tracks and the previous one so a
+  // track change can swap covers in the same frame as the title.
+  Repeater {
+    model: root.knownEntries
+
+    Image {
+      required property var modelData
+      visible: false
+      asynchronous: true
+      source: modelData.artworkUrl || ""
+      onStatusChanged: if (status === Image.Ready) {
+        var urls = root.preloadedUrls
+        urls[String(source)] = true
+        root.preloadedUrls = urls
+      }
+    }
   }
 
   // Chromium also reports "not playing" for the ~0.5s gap between tracks,
@@ -184,7 +249,7 @@ BarWidget {
     MultiEffect {
       anchors.fill: themedLogoSource
       source: themedLogoSource
-      visible: root.readyArtUrl === ""
+      visible: root.popupArtUrl === ""
       colorization: 1.0
       colorizationColor: root.popupForeground
     }
@@ -194,7 +259,7 @@ BarWidget {
       anchors.centerIn: parent
       width: artworkPuck.canvasSize
       height: width
-      visible: root.readyArtUrl !== ""
+      visible: root.popupArtUrl !== ""
       layer.enabled: true
       layer.smooth: true
       layer.effect: MultiEffect {
@@ -207,12 +272,12 @@ BarWidget {
       Image {
         id: puckArtwork
         anchors.fill: parent
-        source: root.readyArtUrl
+        source: root.popupArtUrl
         fillMode: Image.PreserveAspectCrop
-        // The probe already decoded this file; loading it synchronously
-        // swaps covers in one frame with no empty gap.
+        // A probe or preloader already decoded this URL; loading it
+        // synchronously from the cache swaps covers with no empty gap.
         asynchronous: false
-        cache: false
+        cache: true
         smooth: true
       }
 
@@ -347,6 +412,9 @@ BarWidget {
     asynchronous: true
     source: root.music ? root.music.hiResArtUrl : ""
     onStatusChanged: if (status === Image.Ready && root.music) {
+      var urls = root.preloadedUrls
+      urls[String(source)] = true
+      root.preloadedUrls = urls
       root.readyHiResUrl = String(source)
       root.readyHiResTitle = root.music.title
     }
@@ -693,8 +761,8 @@ BarWidget {
           Item {
             id: queueRow
             required property int index
-            readonly property var modelData: root.music && index < root.music.upNext.length
-              ? root.music.upNext[index] : null
+            readonly property var modelData: index < root.shownUpNext.length
+              ? root.shownUpNext[index] : null
             width: parent.width
             height: queueLabel.implicitHeight + Style.space(4)
 

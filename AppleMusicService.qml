@@ -86,6 +86,27 @@ Item {
     onTriggered: root.clearPending()
   }
   readonly property var upNext: bridgeActive ? Model.upNextFromState(bridgeState) : []
+  readonly property var previousTrack:
+    bridgeActive && bridgeState.previous ? bridgeState.previous : null
+
+  // The track a next/previous/jump click is expected to land on, shown
+  // immediately (title, artist, album, pre-loaded cover) while Apple Music
+  // loads it (~1s). Cleared when real metadata arrives or after a timeout,
+  // so a wrong guess corrects itself.
+  property var predictedTrack: null
+
+  function predict(entry) {
+    if (!entry) return
+    predictedTrack = entry
+    predictionTimeout.restart()
+  }
+
+  Timer {
+    id: predictionTimeout
+    interval: 2500
+    onTriggered: root.predictedTrack = null
+  }
+
   // Large cover from Apple's CDN (the MPRIS art is a 150px thumbnail).
   readonly property string hiResArtUrl:
     bridgeActive && bridgeState.artworkUrl ? String(bridgeState.artworkUrl) : ""
@@ -143,8 +164,8 @@ Item {
     Quickshell.execDetached([launcherPath, "install"])
   }
 
-  function sendBridgeCommand(command) {
-    if (!bridgeActive) return
+  function sendBridgeCommand(command, evenIfInactive) {
+    if (!bridgeActive && !evenIfInactive) return
     commandSequence += 1
     bridgeCommandProc.command = [
       "python3", "-c", Model.commandWritePythonScript(),
@@ -195,6 +216,9 @@ Item {
   }
 
   function jumpToQueueIndex(index) {
+    for (var i = 0; i < upNext.length; i++) {
+      if (upNext[i].index === Number(index)) { predict(upNext[i]); break }
+    }
     sendBridgeCommand({ action: "jump", index: Number(index) || 0 })
   }
 
@@ -259,11 +283,17 @@ Item {
   }
 
   function previous() {
-    if (available && activePlayer.canGoPrevious) activePlayer.previous()
+    if (!available || !activePlayer.canGoPrevious) return
+    // Apple restarts the current song unless it has barely started, so only
+    // predict the previous track in that window.
+    if (position < 1.5) predict(previousTrack)
+    activePlayer.previous()
   }
 
   function next() {
-    if (available && activePlayer.canGoNext) activePlayer.next()
+    if (!available || !activePlayer.canGoNext) return
+    if (upNext.length > 0) predict(upNext[0])
+    activePlayer.next()
   }
 
   function seekFraction(fraction) {
@@ -279,6 +309,12 @@ Item {
     historyLogTimer.restart()
     // A track change makes any pending rating meaningless.
     pendingRating = ""
+    if (title !== "") {
+      predictedTrack = null
+      // Pull fresh bridge state (queue, rating, cover) now instead of
+      // waiting for the daemon's next one-second poll.
+      if (available) sendBridgeCommand({ action: "refresh" }, true)
+    }
   }
 
   onRawArtUrlChanged: {

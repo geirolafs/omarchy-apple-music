@@ -33,20 +33,57 @@ Item {
   // Playback modes from the bridge (MusicKit is the single authoritative
   // source). null/"unknown" means the real state is unavailable — the UI
   // must never render that as a definite off.
-  readonly property var shuffleMode:
+  readonly property var bridgeShuffle:
     bridgeActive && bridgeState && typeof bridgeState.shuffle === "boolean"
     ? bridgeState.shuffle : null
-  readonly property string repeatMode:
+  readonly property string bridgeRepeat:
     bridgeActive && bridgeState && bridgeState.repeat ? String(bridgeState.repeat) : "unknown"
-  readonly property var autoplay:
+  readonly property var bridgeAutoplay:
     bridgeActive && bridgeState && typeof bridgeState.autoplay === "boolean"
     ? bridgeState.autoplay : null
+  readonly property string bridgeRating:
+    bridgeActive && bridgeState.rating ? String(bridgeState.rating) : "unknown"
+
+  // Optimistic state: a click shows its result immediately while the command
+  // travels to the page. Each pending value is dropped once the bridge
+  // reports the same value, or when pendingTimeout fires (the UI then falls
+  // back to whatever MusicKit actually reports).
+  property var pendingShuffle: null
+  property string pendingRepeat: ""
+  property var pendingAutoplay: null
+  property string pendingRating: ""
+
+  readonly property var shuffleMode: pendingShuffle !== null ? pendingShuffle : bridgeShuffle
+  readonly property string repeatMode: pendingRepeat !== "" ? pendingRepeat : bridgeRepeat
+  readonly property var autoplay: pendingAutoplay !== null ? pendingAutoplay : bridgeAutoplay
   readonly property string libraryState:
     bridgeActive && bridgeState && bridgeState.library ? String(bridgeState.library) : "unknown"
 
   readonly property bool bridgeActive: available && Model.bridgeIsActive(bridgeState, title)
-  readonly property string rating:
-    bridgeActive && bridgeState.rating ? String(bridgeState.rating) : "unknown"
+  readonly property string rating: pendingRating !== "" ? pendingRating : bridgeRating
+
+  function clearPendingIfConfirmed() {
+    if (pendingShuffle !== null && bridgeShuffle === pendingShuffle) pendingShuffle = null
+    if (pendingRepeat !== "" && bridgeRepeat === pendingRepeat) pendingRepeat = ""
+    if (pendingAutoplay !== null && bridgeAutoplay === pendingAutoplay) pendingAutoplay = null
+    if (pendingRating !== "" && bridgeRating === pendingRating) pendingRating = ""
+  }
+
+  function clearPending() {
+    pendingShuffle = null
+    pendingRepeat = ""
+    pendingAutoplay = null
+    pendingRating = ""
+  }
+
+  onBridgeStateChanged: clearPendingIfConfirmed()
+
+  Timer {
+    id: pendingTimeout
+    interval: 4000
+    repeat: false
+    onTriggered: root.clearPending()
+  }
   readonly property var upNext: bridgeActive ? Model.upNextFromState(bridgeState) : []
 
   // True when the dedicated Chromium Apple Music window is running. The
@@ -111,7 +148,11 @@ Item {
   }
 
   function rate(value) {
-    sendBridgeCommand({ action: "rate", value: Number(value) })
+    if (!bridgeActive) return
+    var number = Number(value)
+    pendingRating = number === 1 ? "like" : number === -1 ? "dislike" : "none"
+    pendingTimeout.restart()
+    sendBridgeCommand({ action: "rate", value: number })
   }
 
   function toggleLike() {
@@ -123,6 +164,9 @@ Item {
   }
 
   function setShuffle(enabled) {
+    if (!bridgeActive) return
+    pendingShuffle = !!enabled
+    pendingTimeout.restart()
     sendBridgeCommand({ action: "set-shuffle", enabled: !!enabled })
   }
 
@@ -130,11 +174,17 @@ Item {
   // state, never numeric enum ordering. An unknown state simply starts the
   // cycle at its beginning ("all" comes first after Off).
   function cycleRepeat() {
+    if (!bridgeActive) return
     var next = repeatMode === "all" ? "one" : repeatMode === "one" ? "none" : "all"
+    pendingRepeat = next
+    pendingTimeout.restart()
     sendBridgeCommand({ action: "set-repeat", mode: next })
   }
 
   function setAutoplay(enabled) {
+    if (!bridgeActive) return
+    pendingAutoplay = !!enabled
+    pendingTimeout.restart()
     sendBridgeCommand({ action: "set-autoplay", enabled: !!enabled })
   }
 
@@ -219,7 +269,11 @@ Item {
 
   // MPRIS title/artist can land a tick apart; the debounce lets both settle
   // before the entry is written, and lastHistoryKey collapses the result.
-  onTitleChanged: historyLogTimer.restart()
+  onTitleChanged: {
+    historyLogTimer.restart()
+    // A track change makes any pending rating meaningless.
+    pendingRating = ""
+  }
 
   onRawArtUrlChanged: {
     if (rawArtUrl === "") {

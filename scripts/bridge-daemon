@@ -30,6 +30,7 @@ import time
 import urllib.request
 
 POLL_INTERVAL = 1.0
+COMMAND_POLL_INTERVAL = 0.05  # how quickly a queued command is picked up
 EVAL_TIMEOUT = 6.0
 MAX_COMMAND_ATTEMPTS = 3
 
@@ -445,6 +446,26 @@ def sanitize_state(value):
     return state
 
 
+def has_new_command(commands_fd, attempts):
+    """True for a command file not yet attempted. Files kept for a retry are
+    ignored so retries stay one poll apart (the page may still be loading)."""
+    try:
+        return any(COMMAND_NAME.match(n) and n not in attempts
+                   for n in os.listdir(commands_fd))
+    except OSError:
+        return False
+
+
+def wait_for_command_or_timeout(commands_fd, attempts, timeout):
+    """Sleep up to `timeout`, returning early as soon as a command file lands
+    so button clicks are applied within ~50ms instead of up to a second."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if has_new_command(commands_fd, attempts):
+            return
+        time.sleep(COMMAND_POLL_INTERVAL)
+
+
 def close_client(client):
     """Close a CdpClient (if any) and return None so callers can clear their
     slot and rediscover a fresh port/page target on the next loop."""
@@ -472,11 +493,13 @@ def main():
         state = {"ok": False}
         if client is not None:
             try:
+                # Commands first, so the state published right after a click
+                # already reflects it instead of lagging one poll behind.
+                consume_commands(client, commands_fd, attempts)
                 value = client.evaluate(
                     "window.__omarchyAppleMusic ? window.__omarchyAppleMusic.collect() : null"
                 )
                 state = sanitize_state(value)
-                consume_commands(client, commands_fd, attempts)
             except ProtocolError as error:
                 # The socket or page target is gone (browser closed, page
                 # replaced, WebSocket dropped). Drop the client so the next
@@ -490,7 +513,7 @@ def main():
             print(json.dumps(state), flush=True)
         except BrokenPipeError:
             return 0  # the service stopped reading; exit quietly
-        time.sleep(POLL_INTERVAL)
+        wait_for_command_or_timeout(commands_fd, attempts, POLL_INTERVAL)
 
 
 if __name__ == "__main__":

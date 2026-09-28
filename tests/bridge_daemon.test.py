@@ -11,6 +11,7 @@ import json
 import os
 import stat
 import tempfile
+import time
 import unittest
 
 DAEMON_PATH = os.path.join(os.path.dirname(__file__), "..", "scripts", "bridge-daemon")
@@ -46,6 +47,23 @@ class NoteCommandFailureTest(unittest.TestCase):
         self.assertFalse(bridge_daemon.note_command_failure("cmd-1.json", attempts))
         self.assertFalse(bridge_daemon.note_command_failure("cmd-2.json", attempts))
         self.assertEqual(attempts, {"cmd-1.json": 1, "cmd-2.json": 1})
+
+
+class CommandWakeTest(unittest.TestCase):
+    def test_wakes_for_new_commands_only(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            fd = os.open(tmp, os.O_RDONLY)
+            try:
+                self.assertFalse(bridge_daemon.has_new_command(fd, {}))
+                open(os.path.join(tmp, "cmd-1.json"), "w").close()
+                self.assertTrue(bridge_daemon.has_new_command(fd, {}))
+                self.assertFalse(bridge_daemon.has_new_command(fd, {"cmd-1.json": 1}))
+                start = time.monotonic()
+                bridge_daemon.wait_for_command_or_timeout(fd, {}, 1.0)
+                self.assertLess(time.monotonic() - start, 0.5)
+            finally:
+                os.close(fd)
 
 
 class SanitizeStateTest(unittest.TestCase):

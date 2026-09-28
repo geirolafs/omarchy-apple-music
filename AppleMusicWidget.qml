@@ -111,6 +111,10 @@ BarWidget {
   function close() { popupOpen = false }
   function toggle() { popupOpen = !popupOpen }
 
+  // Fixed row counts so the popup keeps one height across track changes.
+  readonly property int queueSlots: 6
+  readonly property int recentSlots: 5
+
   // Last artwork URL that decoded successfully. Chromium hands MPRIS a new
   // /tmp artwork file several times per track switch and deletes the old
   // ones, so binding an Image straight to artUrl flashes placeholders. The
@@ -414,9 +418,8 @@ BarWidget {
 
           Text {
             width: parent.width
-            text: root.shownArtist
+            text: root.shownArtist || " "
             textFormat: Text.PlainText
-            visible: text !== ""
             color: Qt.darker(root.popupForeground, 1.3)
             font.family: root.popupFontFamily
             font.pixelSize: Style.font.body
@@ -425,9 +428,8 @@ BarWidget {
 
           Text {
             width: parent.width
-            text: root.shownAlbum
+            text: root.shownAlbum || " "
             textFormat: Text.PlainText
-            visible: text !== ""
             color: Qt.darker(root.popupForeground, 1.6)
             font.family: root.popupFontFamily
             font.pixelSize: Style.font.caption
@@ -439,7 +441,8 @@ BarWidget {
       Column {
         width: parent.width
         spacing: Style.space(4)
-        visible: !!root.music && root.music.available
+        // Always shown (dimmed when idle) so the popup height never changes.
+        opacity: !!root.music && root.music.available ? 1 : 0.4
 
         Rectangle {
           id: progressTrack
@@ -483,16 +486,6 @@ BarWidget {
             font.family: root.popupFontFamily
             font.pixelSize: Style.font.caption
           }
-        }
-
-        Text {
-          width: parent.width
-          visible: !!root.music && !root.music.hasValidLength
-          text: "Apple Music does not expose track duration"
-          horizontalAlignment: Text.AlignHCenter
-          color: Qt.darker(root.popupForeground, 1.6)
-          font.family: root.popupFontFamily
-          font.pixelSize: Style.font.caption
         }
       }
 
@@ -649,7 +642,8 @@ BarWidget {
       Column {
         width: parent.width
         spacing: Style.space(4)
-        visible: root.showQueue && !!root.music && root.music.upNext.length > 0
+        // Fixed slot count so the popup keeps one height across track changes.
+        visible: root.showQueue
 
         PanelSeparator { foreground: root.popupForeground }
 
@@ -663,11 +657,13 @@ BarWidget {
         }
 
         Repeater {
-          model: root.showQueue && root.music ? root.music.upNext.slice(0, 6) : []
+          model: root.queueSlots
 
           Item {
             id: queueRow
-            required property var modelData
+            required property int index
+            readonly property var modelData: root.music && index < root.music.upNext.length
+              ? root.music.upNext[index] : null
             width: parent.width
             height: queueLabel.implicitHeight + Style.space(4)
 
@@ -675,7 +671,7 @@ BarWidget {
               id: queueLabel
               anchors.verticalCenter: parent.verticalCenter
               width: parent.width - queueDuration.implicitWidth - Style.space(10)
-              text: queueRow.modelData.title +
+              text: !queueRow.modelData ? " " : queueRow.modelData.title +
                 (queueRow.modelData.artist ? " — " + queueRow.modelData.artist : "")
               textFormat: Text.PlainText
               color: root.popupForeground
@@ -688,7 +684,7 @@ BarWidget {
               id: queueDuration
               anchors.right: parent.right
               anchors.verticalCenter: parent.verticalCenter
-              text: root.music && queueRow.modelData.durationSeconds > 0
+              text: queueRow.modelData && queueRow.modelData.durationSeconds > 0
                 ? Model.formatTime(queueRow.modelData.durationSeconds) : ""
               color: Qt.darker(root.popupForeground, 1.6)
               font.family: root.popupFontFamily
@@ -697,6 +693,7 @@ BarWidget {
 
             MouseArea {
               anchors.fill: parent
+              enabled: !!queueRow.modelData
               cursorShape: Qt.PointingHandCursor
               onClicked: root.music.jumpToQueueIndex(queueRow.modelData.index)
             }
@@ -707,7 +704,7 @@ BarWidget {
       Column {
         width: parent.width
         spacing: Style.space(4)
-        visible: root.showRecentlyPlayed && !!root.music && root.music.recentTracks.length > 0
+        visible: root.showRecentlyPlayed
 
         PanelSeparator { foreground: root.popupForeground }
 
@@ -721,17 +718,18 @@ BarWidget {
         }
 
         Repeater {
-          model: root.showRecentlyPlayed && root.music
-            ? root.music.recentTracks.slice(0, 5) : []
+          model: root.recentSlots
 
           Item {
             id: historyRow
-            required property var modelData
+            required property int index
+            readonly property var modelData: root.music && index < root.music.recentTracks.length
+              ? root.music.recentTracks[index] : null
             width: parent.width
             height: historyLabel.implicitHeight + Style.space(4)
 
             Accessible.role: Accessible.ListItem
-            Accessible.name: historyRow.modelData.title +
+            Accessible.name: !historyRow.modelData ? "" : historyRow.modelData.title +
               (historyRow.modelData.artist ? " — " + historyRow.modelData.artist : "") +
               (historyRow.modelData.play ? ", replay" : ", open Apple Music")
 
@@ -739,7 +737,7 @@ BarWidget {
               id: historyLabel
               anchors.verticalCenter: parent.verticalCenter
               width: parent.width
-              text: historyRow.modelData.title +
+              text: !historyRow.modelData ? " " : historyRow.modelData.title +
                 (historyRow.modelData.artist ? " — " + historyRow.modelData.artist : "")
               textFormat: Text.PlainText
               color: Qt.darker(root.popupForeground, 1.3)
@@ -751,7 +749,8 @@ BarWidget {
               anchors.fill: parent
               // Replayable rows carry an exact-song descriptor; legacy rows
               // keep the pre-existing focus behavior and must not imply replay.
-              cursorShape: historyRow.modelData.play
+              enabled: !!historyRow.modelData
+              cursorShape: historyRow.modelData && historyRow.modelData.play
                 ? Qt.PointingHandCursor : Qt.ArrowCursor
               onClicked: if (root.music) {
                 if (historyRow.modelData.play) root.music.replayTrack(historyRow.modelData)

@@ -401,9 +401,9 @@ Item {
     command: ["python3", root.bridgeDaemonPath, root.profileDir, root.bridgeCommandsDir]
     running: true
     onExited: function(exitCode, exitStatus) {
-      console.warn("iuliansafta.apple-music bridge-daemon exited:", exitCode, exitStatus)
+      console.warn("is.geir.apple-music bridge-daemon exited:", exitCode, exitStatus)
     }
-    onStarted: console.log("iuliansafta.apple-music bridge-daemon started")
+    onStarted: console.log("is.geir.apple-music bridge-daemon started")
     stdout: SplitParser {
       onRead: function(line) {
         var text = String(line || "")
@@ -422,7 +422,7 @@ Item {
     }
     stderr: SplitParser {
       onRead: function(line) {
-        console.warn("iuliansafta.apple-music bridge-daemon:", String(line || "").trim())
+        console.warn("is.geir.apple-music bridge-daemon:", String(line || "").trim())
       }
     }
   }
@@ -440,7 +440,7 @@ Item {
   Process { id: bridgeCommandProc }
   Process { id: historyAppendProc }
   IpcHandler {
-    target: "iuliansafta.apple-music"
+    target: "is.geir.apple-music"
 
     function status(): string {
       return JSON.stringify({

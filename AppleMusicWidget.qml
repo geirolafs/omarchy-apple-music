@@ -7,10 +7,10 @@ import "AppleMusicModel.js" as Model
 
 BarWidget {
   id: root
-  moduleName: "iuliansafta.apple-music"
+  moduleName: "is.geir.apple-music"
 
   readonly property var music: bar && bar.shell
-    ? bar.shell.serviceFor("iuliansafta.apple-music") : null
+    ? bar.shell.serviceFor("is.geir.apple-music") : null
   readonly property string barDisplay: String(setting("barDisplay", "Artwork"))
   readonly property bool artworkDisplay: barDisplay !== "Text"
   readonly property bool showArtist: setting("showArtist", true)

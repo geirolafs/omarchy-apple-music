@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "id": "iuliansafta.apple-music",
-  "name": "Apple Music",
-  "version": "0.3.3",
-  "author": "Iulian Safta",
+  "id": "is.geir.apple-music",
+  "name": "Apple Music (geir)",
+  "version": "0.3.3-geir.1",
+  "author": "Geir Olafsson (fork of Iulian Safta)",
   "description": "Apple Music web player controls and now-playing information for the Omarchy bar.",
   "homepage": "https://github.com/iuliansafta/omarchy-apple-music",
   "license": "MIT",

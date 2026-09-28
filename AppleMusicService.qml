@@ -160,6 +160,14 @@ Item {
     delayedRefresh.restart()
   }
 
+  // Opens Apple Music on what is playing: the playlist, album or station the
+  // track was started from (or the song's own page), without interrupting
+  // playback. Falls back to a plain open when the bridge is unavailable.
+  function revealNowPlaying() {
+    if (bridgeActive) sendBridgeCommand({ action: "reveal" })
+    openAppleMusic()
+  }
+
   function installLauncher() {
     Quickshell.execDetached([launcherPath, "install"])
   }
@@ -457,6 +465,7 @@ Item {
     }
 
     function open(): void { root.openAppleMusic() }
+    function reveal(): void { root.revealNowPlaying() }
     function playPause(): void { root.togglePlayback() }
     function previous(): void { root.previous() }
     function next(): void { root.next() }

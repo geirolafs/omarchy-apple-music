@@ -862,10 +862,10 @@ BarWidget {
 
       Button {
         anchors.horizontalCenter: parent.horizontalCenter
-        text: "Open Apple Music"
+        text: root.music && root.music.bridgeActive ? "Show in Apple Music" : "Open Apple Music"
         iconText: ""
         foreground: root.popupForeground
-        onClicked: if (root.music) root.music.openAppleMusic()
+        onClicked: if (root.music) root.music.revealNowPlaying()
       }
     }
   }

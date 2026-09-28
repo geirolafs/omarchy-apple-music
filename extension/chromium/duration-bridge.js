@@ -175,6 +175,42 @@ function artworkUrlOf(item, size) {
   return ARTWORK_URL_PATTERN.test(url) && url.indexOf("{") < 0 ? url : ""
 }
 
+// Where the current track is playing from, as an in-app path: the playlist,
+// album, station or artist it was started from, else the song's own page.
+var CONTAINER_ROUTES = {
+  "library-playlists": "library/playlist",
+  "library-albums": "library/albums",
+  "playlists": "playlist",
+  "albums": "album",
+  "stations": "station",
+  "artists": "artist"
+}
+
+function revealPathFor(item, storefront) {
+  if (!item) return ""
+  var sf = /^[a-z]{2}$/.test(String(storefront || "")) ? storefront : "us"
+  var container = item.container
+  var route = container && CONTAINER_ROUTES[container.type]
+  if (route && container.id && DESCRIPTOR_ID_PATTERN.test(String(container.id))) {
+    return "/" + sf + "/" + route + "/" + encodeURIComponent(container.id)
+  }
+  var params = playParamsOf(item)
+  var songId = params && (params.catalogId || (!params.isLibrary && params.id))
+  if (songId && DESCRIPTOR_ID_PATTERN.test(String(songId))) {
+    return "/" + sf + "/song/" + encodeURIComponent(songId)
+  }
+  return ""
+}
+
+// Navigates the web player in place. Apple's router ignores popstate for a
+// history entry it already knows, but routes a fresh entry id by URL, and a
+// pushState can never reload the page (which would stop playback).
+function navigateInApp(path) {
+  var state = { id: crypto.randomUUID() }
+  history.pushState(state, "", path)
+  window.dispatchEvent(new PopStateEvent("popstate", { state: state }))
+}
+
 // Command-boundary validation: only fully-formed descriptors reach the
 // player, and unknown fields are dropped rather than passed through.
 function validPlaybackDescriptor(value) {
@@ -537,6 +573,13 @@ function handleCommand(payload) {
     // the shell sends this on a track change to skip the regular poll wait.
     if (action === "refresh") return Promise.resolve({ ok: true })
 
+    if (action === "reveal") {
+      var path = revealPathFor(currentTrackItem(music), music.storefrontId)
+      if (!path) return Promise.resolve({ ok: false, error: "no-track" })
+      if (location.pathname !== path) navigateInApp(path)
+      return Promise.resolve({ ok: true })
+    }
+
     if (action === "rate") {
       var current = currentTrackItem(music)
       if (!current) return Promise.resolve({ ok: false, error: "no-track" })
@@ -638,6 +681,7 @@ if (typeof module !== "undefined") {
     playbackDescriptorOf: playbackDescriptorOf,
     validPlaybackDescriptor: validPlaybackDescriptor,
     artworkUrlOf: artworkUrlOf,
+    revealPathFor: revealPathFor,
     previousEntry: previousEntry,
     playDescriptor: playDescriptor,
     librarySearchUrl: librarySearchUrl,

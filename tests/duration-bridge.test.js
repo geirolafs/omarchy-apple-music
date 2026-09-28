@@ -24,6 +24,20 @@ assert.equal(bridge.artworkUrlOf(artworkItem, 600),
 assert.equal(bridge.artworkUrlOf({ artwork: { url: "https://evil.example/{w}x{h}.jpg" } }), "")
 assert.equal(bridge.artworkUrlOf(null), "")
 
+assert.equal(bridge.revealPathFor({
+  container: { type: "library-playlists", id: "p.V71bCEo4PxK" },
+  attributes: { playParams: { id: "i.Kd8", catalogId: "1256607811", isLibrary: true } }
+}, "us"), "/us/library/playlist/p.V71bCEo4PxK")
+assert.equal(bridge.revealPathFor({ container: { type: "albums", id: "1440857781" } }, "is"),
+  "/is/album/1440857781")
+// No usable container: fall back to the catalog song page.
+assert.equal(bridge.revealPathFor({
+  container: { type: "unknown-thing", id: "x" },
+  attributes: { playParams: { id: "i.Kd8", catalogId: "1256607811", isLibrary: true } }
+}, "us"), "/us/song/1256607811")
+assert.equal(bridge.revealPathFor({ attributes: { playParams: { id: "i.Kd8", isLibrary: true } } }, "us"), "")
+assert.equal(bridge.revealPathFor(null, "us"), "")
+
 assert.equal(bridge.bridgedPosition(50, 200), 50)
 assert.equal(bridge.bridgedPosition(-1, 200), 0)
 assert.ok(bridge.bridgedPosition(250, 200) < 200)

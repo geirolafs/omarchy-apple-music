@@ -45,6 +45,7 @@ MAX_STATE_STRING = 512               # any string forwarded to the shell
 MAX_UPNEXT_ENTRIES = 40
 
 COMMAND_NAME = re.compile(r"^[A-Za-z0-9._-]+\.json$")
+ARTWORK_URL = re.compile(r"^https://[a-z0-9-]+\.mzstatic\.com/[^\s\"'<>{}]+$")
 DESCRIPTOR_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 # The dedicated window is *expected* to sit on music.apple.com, but a
 # prefix test would also accept music.apple.com.evil.test; the host must end
@@ -420,6 +421,9 @@ def sanitize_state(value):
         "library": _text(value.get("library"), 32),
         "play": sanitize_descriptor(value.get("play")),
     }
+    artwork = _text(value.get("artworkUrl"))
+    if ARTWORK_URL.match(artwork):
+        state["artworkUrl"] = artwork
     # Tri-state fields: forwarded only when definitely boolean, so the UI
     # keeps rendering "unknown" instead of a fabricated off.
     if isinstance(value.get("shuffle"), bool):

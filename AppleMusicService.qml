@@ -86,6 +86,9 @@ Item {
     onTriggered: root.clearPending()
   }
   readonly property var upNext: bridgeActive ? Model.upNextFromState(bridgeState) : []
+  // Large cover from Apple's CDN (the MPRIS art is a 150px thumbnail).
+  readonly property string hiResArtUrl:
+    bridgeActive && bridgeState.artworkUrl ? String(bridgeState.artworkUrl) : ""
 
   // True when the dedicated Chromium Apple Music window is running. The
   // widget binds its visibility to this so a closed player does not reserve

@@ -61,6 +61,8 @@ BarWidget {
     shownArtist = ""
     shownAlbum = ""
     readyArtUrl = ""
+    readyHiResUrl = ""
+    readyHiResTitle = ""
   }
 
   Connections {
@@ -325,6 +327,31 @@ BarWidget {
     onStatusChanged: if (status === Image.Ready) root.readyArtUrl = String(source)
   }
 
+  // Large cover from Apple's CDN. Kept on screen until the next track's
+  // cover (large or thumbnail) is ready, so track changes swap covers once
+  // instead of stepping through a blurry thumbnail.
+  property string readyHiResUrl: ""
+  property string readyHiResTitle: ""
+  readonly property string popupArtUrl: readyHiResUrl !== "" ? readyHiResUrl : readyArtUrl
+
+  onReadyArtUrlChanged: {
+    if (!music || readyHiResTitle !== music.title) {
+      readyHiResUrl = ""
+      readyHiResTitle = ""
+    }
+  }
+
+  Image {
+    id: hiResProbe
+    visible: false
+    asynchronous: true
+    source: root.music ? root.music.hiResArtUrl : ""
+    onStatusChanged: if (status === Image.Ready && root.music) {
+      root.readyHiResUrl = String(source)
+      root.readyHiResTitle = root.music.title
+    }
+  }
+
   PopupCard {
     id: popup
     anchorItem: root
@@ -388,15 +415,15 @@ BarWidget {
             id: artwork
             anchors.fill: parent
             anchors.margins: Style.space(2)
-            source: root.readyArtUrl
+            source: root.popupArtUrl
             fillMode: Image.PreserveAspectCrop
             asynchronous: false
-            cache: false
+            cache: true
           }
 
           Text {
             anchors.centerIn: parent
-            visible: root.readyArtUrl === ""
+            visible: root.popupArtUrl === ""
             text: "󰝚"
             color: root.popupForeground
             font.family: root.popupFontFamily

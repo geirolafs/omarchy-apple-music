@@ -157,6 +157,24 @@ function playbackDescriptorOf(item) {
   return descriptor
 }
 
+// MusicKit artwork URLs are templates ("…/{w}x{h}bb.jpg"). Chromium's MPRIS
+// art is a 150px thumbnail, so the popup asks the CDN for a large square
+// instead. Only Apple's artwork CDN is accepted.
+var ARTWORK_SIZE = 1000
+var ARTWORK_URL_PATTERN = /^https:\/\/[a-z0-9-]+\.mzstatic\.com\/[^\s"'<>]+$/
+
+function artworkUrlOf(item, size) {
+  var artwork = item && item.attributes && item.attributes.artwork
+    ? item.attributes.artwork : item && item.artwork
+  var template = artwork && typeof artwork.url === "string" ? artwork.url : ""
+  if (!template) return ""
+  var edge = String(Math.round(size || ARTWORK_SIZE))
+  var url = template
+    .replace("{w}", edge).replace("{h}", edge)
+    .replace("{c}", "bb").replace("{f}", "jpg")
+  return ARTWORK_URL_PATTERN.test(url) && url.indexOf("{") < 0 ? url : ""
+}
+
 // Command-boundary validation: only fully-formed descriptors reach the
 // player, and unknown fields are dropped rather than passed through.
 function validPlaybackDescriptor(value) {
@@ -460,6 +478,7 @@ function collectBridgeState() {
       repeat: normalizeRepeat(music.repeatMode),
       autoplay: normalizeAutoplay(music.autoplayEnabled),
       play: current ? playbackDescriptorOf(current) : null,
+      artworkUrl: current ? artworkUrlOf(current) : "",
       library: current && trackId && libraryCache.id === trackId
         ? libraryCache.state : "unknown"
     }
@@ -604,6 +623,7 @@ if (typeof module !== "undefined") {
     ratingStateForValue: ratingStateForValue,
     playbackDescriptorOf: playbackDescriptorOf,
     validPlaybackDescriptor: validPlaybackDescriptor,
+    artworkUrlOf: artworkUrlOf,
     playDescriptor: playDescriptor,
     librarySearchUrl: librarySearchUrl,
     libraryAddUrl: libraryAddUrl,

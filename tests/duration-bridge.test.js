@@ -14,6 +14,16 @@ assert.equal(bridge.needsDurationBridge(Infinity), true)
 assert.equal(bridge.needsDurationBridge(0), true)
 assert.equal(bridge.needsDurationBridge(257.247), false)
 
+const artworkItem = { attributes: { artwork: {
+  url: "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/aa/Cover.jpg/{w}x{h}bb.jpg"
+} } }
+assert.equal(bridge.artworkUrlOf(artworkItem),
+  "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/aa/Cover.jpg/1000x1000bb.jpg")
+assert.equal(bridge.artworkUrlOf(artworkItem, 600),
+  "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/aa/Cover.jpg/600x600bb.jpg")
+assert.equal(bridge.artworkUrlOf({ artwork: { url: "https://evil.example/{w}x{h}.jpg" } }), "")
+assert.equal(bridge.artworkUrlOf(null), "")
+
 assert.equal(bridge.bridgedPosition(50, 200), 50)
 assert.equal(bridge.bridgedPosition(-1, 200), 0)
 assert.ok(bridge.bridgedPosition(250, 200) < 200)

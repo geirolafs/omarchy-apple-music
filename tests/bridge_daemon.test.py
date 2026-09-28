@@ -72,6 +72,15 @@ class SanitizeStateTest(unittest.TestCase):
         self.assertEqual(bridge_daemon.sanitize_state([1, 2]), {"ok": False})
         self.assertEqual(bridge_daemon.sanitize_state({"ok": "yes"}), {"ok": False})
 
+    def test_artwork_url_only_from_apple_cdn(self):
+        good = "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/aa/Cover.jpg/1000x1000bb.jpg"
+        state = bridge_daemon.sanitize_state({"ok": True, "artworkUrl": good})
+        self.assertEqual(state["artworkUrl"], good)
+        for bad in ["https://evil.example/a.jpg", "file:///etc/passwd",
+                    "https://is1.mzstatic.com/{w}x{h}bb.jpg", 42]:
+            state = bridge_daemon.sanitize_state({"ok": True, "artworkUrl": bad})
+            self.assertNotIn("artworkUrl", state)
+
     def test_strings_are_typed_and_capped(self):
         state = bridge_daemon.sanitize_state({
             "ok": True,

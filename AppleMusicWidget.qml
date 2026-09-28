@@ -115,6 +115,10 @@ BarWidget {
   readonly property int queueSlots: 6
   readonly property int recentSlots: 5
 
+  // Corner radius from the theme (Hyprland decoration:rounding), capped so
+  // small items never turn into circles.
+  function themeRadius(size) { return Math.min(Style.cornerRadius, size / 2) }
+
   // Last artwork URL that decoded successfully. Chromium hands MPRIS a new
   // /tmp artwork file several times per track switch and deletes the old
   // ones, so binding an Image straight to artUrl flashes placeholders. The
@@ -151,7 +155,7 @@ BarWidget {
       id: artworkMask
       width: artworkPuck.canvasSize
       height: width
-      radius: Style.space(4)
+      radius: root.themeRadius(width)
       visible: false
       layer.enabled: true
       color: "white"
@@ -213,7 +217,7 @@ BarWidget {
       Rectangle {
         anchors.fill: parent
         visible: root.showPaused
-        color: Util.alpha("#000000", 0.32)
+        color: Util.alpha(Color.bar.background, 0.45)
       }
 
       OpticalGlyph {
@@ -222,7 +226,7 @@ BarWidget {
         height: width
         visible: root.showPaused
         text: "󰐊"
-        color: "white"
+        color: Color.bar.text
         fontFamily: root.bar ? root.popupFontFamily : Style.font.family
         fontSize: Style.font.caption
       }
@@ -234,7 +238,7 @@ BarWidget {
         anchors.bottom: parent.bottom
         height: Math.max(1, Style.space(2))
         visible: !!root.music && root.music.hasMedia && root.music.hasValidLength
-        color: Util.alpha("#000000", 0.38)
+        color: Util.alpha(Color.bar.background, 0.6)
 
         Rectangle {
           width: parent.width * (root.music ? root.music.progress : 0)
@@ -420,7 +424,7 @@ BarWidget {
             width: parent.width
             text: root.shownArtist || " "
             textFormat: Text.PlainText
-            color: Qt.darker(root.popupForeground, 1.3)
+            color: Util.alpha(root.popupForeground, 0.75)
             font.family: root.popupFontFamily
             font.pixelSize: Style.font.body
             elide: Text.ElideRight
@@ -430,7 +434,7 @@ BarWidget {
             width: parent.width
             text: root.shownAlbum || " "
             textFormat: Text.PlainText
-            color: Qt.darker(root.popupForeground, 1.6)
+            color: Util.alpha(root.popupForeground, 0.55)
             font.family: root.popupFontFamily
             font.pixelSize: Style.font.caption
             elide: Text.ElideRight
@@ -448,7 +452,7 @@ BarWidget {
           id: progressTrack
           width: parent.width
           height: Style.space(5)
-          radius: height / 2
+          radius: root.themeRadius(height)
           color: Util.alpha(root.popupForeground, 0.2)
 
           Rectangle {
@@ -472,7 +476,7 @@ BarWidget {
           Text {
             id: elapsed
             text: root.music ? root.music.elapsedText : "0:00"
-            color: Qt.darker(root.popupForeground, 1.4)
+            color: Util.alpha(root.popupForeground, 0.65)
             font.family: root.popupFontFamily
             font.pixelSize: Style.font.caption
           }
@@ -482,7 +486,7 @@ BarWidget {
           Text {
             id: duration
             text: root.music ? root.music.lengthText : "--:--"
-            color: Qt.darker(root.popupForeground, 1.4)
+            color: Util.alpha(root.popupForeground, 0.65)
             font.family: root.popupFontFamily
             font.pixelSize: Style.font.caption
           }
@@ -650,7 +654,7 @@ BarWidget {
         Text {
           width: parent.width
           text: "Up next"
-          color: Qt.darker(root.popupForeground, 1.4)
+          color: Util.alpha(root.popupForeground, 0.65)
           font.family: root.popupFontFamily
           font.pixelSize: Style.font.caption
           font.bold: true
@@ -686,7 +690,7 @@ BarWidget {
               anchors.verticalCenter: parent.verticalCenter
               text: queueRow.modelData && queueRow.modelData.durationSeconds > 0
                 ? Model.formatTime(queueRow.modelData.durationSeconds) : ""
-              color: Qt.darker(root.popupForeground, 1.6)
+              color: Util.alpha(root.popupForeground, 0.55)
               font.family: root.popupFontFamily
               font.pixelSize: Style.font.caption
             }
@@ -711,7 +715,7 @@ BarWidget {
         Text {
           width: parent.width
           text: "Recently played"
-          color: Qt.darker(root.popupForeground, 1.4)
+          color: Util.alpha(root.popupForeground, 0.65)
           font.family: root.popupFontFamily
           font.pixelSize: Style.font.caption
           font.bold: true
@@ -740,7 +744,7 @@ BarWidget {
               text: !historyRow.modelData ? " " : historyRow.modelData.title +
                 (historyRow.modelData.artist ? " — " + historyRow.modelData.artist : "")
               textFormat: Text.PlainText
-              color: Qt.darker(root.popupForeground, 1.3)
+              color: Util.alpha(root.popupForeground, 0.75)
               font.family: root.popupFontFamily
               font.pixelSize: Style.font.caption
               elide: Text.ElideRight
